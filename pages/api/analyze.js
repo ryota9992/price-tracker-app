@@ -34,30 +34,7 @@ export default async function handler(req, res) {
               },
               {
                 type: 'text',
-                text: `このスクリーンショットから商品の買取価格情報を抽出してください。
-
-必ず以下のJSON形式のみで返してください。説明文やマークダウン記号は一切含めないでください：
-
-{
-  "productName": "商品名（完全な名前）",
-  "productCode": "商品コード",
-  "quantity": "数量",
-  "purchasePrice": "購入価格",
-  "shops": [
-    {
-      "name": "ショップ名",
-      "buyPrice": 買取価格（数値、カンマなし）,
-      "profit": 利益額（数値、マイナスも含む）,
-      "timeAgo": "取得時間"
-    }
-  ]
-}
-
-重要なルール：
-1. 買取価格が0の店舗は含めない
-2. 数値は必ず数値型で（文字列ではなく）
-3. 上記のJSON以外は一切出力しない（バッククォートや説明文も不要）
-4. JSONは必ず正しい形式で`
+                text: text: 'このスクリーンショットから商品の買取価格情報を抽出し、以下の形式の正しいJSONのみを返してください。他の文字は一切出力しないでください:\n\n{"productName":"商品名","productCode":"商品コード","quantity":"数量","purchasePrice":"購入価格","shops":[{"name":"ショップ名","buyPrice":18500,"profit":0,"timeAgo":"5376時間前"}]}\n\n重要:\n- 買取価格0の店舗は除外\n- 数値は数値型で\n- JSON以外の文字は絶対に出力しない'
               }
             ]
           }
