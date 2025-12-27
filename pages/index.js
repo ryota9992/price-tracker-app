@@ -51,25 +51,43 @@ export default function Home() {
             throw new Error('ファイルサイズが大きすぎます（10MB以下）');
           }
 
-          const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
+const base64 = await new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      let width = img.width;
+      let height = img.height;
+      const maxSize = 1200;
+      
+      if (width > maxSize || height > maxSize) {
+        if (width > height) {
+          height = (height / width) * maxSize;
+          width = maxSize;
+        } else {
+          width = (width / height) * maxSize;
+          height = maxSize;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      const compressed = canvas.toDataURL('image/jpeg', 0.7);
+      resolve(compressed.split(',')[1]);
+    };
+    img.onerror = () => reject(new Error('画像読み込みエラー'));
+    img.src = e.target.result;
+  };
+  reader.onerror = () => reject(new Error('ファイル読み込みエラー'));
+  reader.readAsDataURL(file);
+});
 
-            reader.onload = () => {
-              try {
-                const base64String = reader.result.split(',')[1];
-                if (!base64String) {
-                  reject(new Error('画像データの取得に失敗'));
-                  return;
-                }
-                resolve(base64String);
-              } catch (err) {
-                reject(new Error('Base64変換エラー'));
-              }
-            };
-
-            reader.onerror = () => reject(new Error('ファイル読み込みエラー'));
-            reader.readAsDataURL(file);
-          });
+          
 
           // バックエンドAPIを呼び出す
           const response = await fetch('/api/analyze', {
