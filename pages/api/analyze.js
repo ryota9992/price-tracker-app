@@ -36,7 +36,7 @@ export default async function handler(req, res) {
                 type: 'text',
                 text: `このスクリーンショットから商品の買取価格情報を抽出してください。
 
-以下のJSON形式で返してください（他の説明は一切不要、JSONのみ）：
+必ず以下のJSON形式のみで返してください。説明文やマークダウン記号は一切含めないでください：
 
 {
   "productName": "商品名（完全な名前）",
@@ -53,10 +53,11 @@ export default async function handler(req, res) {
   ]
 }
 
-重要：
-- 買取価格が0の店舗は含めない
-- 数値は必ず数値型で（文字列ではなく）
-- JSONのみを出力（説明文、マークダウン記号などは不要）`
+重要なルール：
+1. 買取価格が0の店舗は含めない
+2. 数値は必ず数値型で（文字列ではなく）
+3. 上記のJSON以外は一切出力しない（バッククォートや説明文も不要）
+4. JSONは必ず正しい形式で`
               }
             ]
           }
@@ -74,6 +75,7 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
+    
     const textContent = data.content
       .filter(item => item.type === 'text')
       .map(item => item.text)
@@ -83,22 +85,46 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Empty response from API' });
     }
 
-    let jsonText = textContent;
-    jsonText = jsonText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    console.log('Raw response:', textContent);
 
+    let jsonText = textContent.trim();
+    jsonText = jsonText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    jsonText = jsonText.trim();
+    
     const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
+      console.error('Could not find JSON in response:', textContent.substring(0, 200));
       return res.status(500).json({ 
-        error: 'Could not extract JSON',
+        error: 'Could not extract JSON from response',
         response: textContent.substring(0, 200)
       });
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
-
-    if (!parsed.productName || !Array.isArray(parsed.shops)) {
-      return res.status(500).json({ error: 'Invalid data format' });
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return res.status(500).json({ 
+        error: 'Invalid JSON format',
+        details: parseError.message,
+        sample: jsonMatch[0].substring(0, 200)
+      });
     }
+
+    if (!parsed.productName) {
+      return res.status(500).json({ error: 'Missing productName in response' });
+    }
+    
+    if (!Array.isArray(parsed.shops)) {
+      return res.status(500).json({ error: 'shops is not an array' });
+    }
+
+    parsed.shops = parsed.shops.map(shop => ({
+      ...shop,
+      buyPrice: typeof shop.buyPrice === 'string' ? parseInt(shop.buyPrice.replace(/,/g, '')) : shop.buyPrice,
+      profit: typeof shop.profit === 'string' ? parseInt(shop.profit.replace(/,/g, '')) : shop.profit
+    }));
 
     return res.status(200).json(parsed);
 
