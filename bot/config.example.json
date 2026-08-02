@@ -1,0 +1,42 @@
+{
+  "_comment": "このファイルを config.json にコピーして使います。config.json は .gitignore 済みです。",
+
+  "autoApprove": false,
+  "_autoApprove": "false = 半自動（承認画面でボタンを押すと再出品）。true = 完全自動（検知したらそのまま再出品）。慣れてきたら true にするだけで移行できます。",
+
+  "dryRun": true,
+  "_dryRun": "true = 出品フォームの入力までやって「公開」は押さない（安全確認用）。実際に出品するときは false にします。",
+
+  "headless": false,
+  "_headless": "false = ブラウザ画面が見える状態で動く。最初は false 推奨。安定したら true。",
+
+  "pollIntervalMinutes": 15,
+  "_pollIntervalMinutes": "売却チェックの間隔。短すぎるとアクセス過多になるので 10 分未満にはしないでください。",
+
+  "jitterMinutes": 5,
+  "_jitterMinutes": "ポーリング間隔にこの範囲でランダムなブレを足します（機械的な等間隔アクセスを避けるため）。",
+
+  "maxRelistsPerDay": 20,
+  "_maxRelistsPerDay": "1日あたりの再出品上限。暴走時のブレーキです。",
+
+  "minSecondsBetweenActions": 8,
+  "_minSecondsBetweenActions": "ページ操作の最小間隔（秒）。人間らしい速度に落とすためのもの。",
+
+  "uiPort": 8787,
+  "_uiPort": "承認画面のポート。http://localhost:8787 で開きます。",
+
+  "notify": {
+    "desktop": true,
+    "webhookUrl": ""
+  },
+  "_notify": "webhookUrl に Slack / Discord の Incoming Webhook URL を入れると通知が飛びます。空なら通知はログのみ。",
+
+  "activeHours": { "from": 8, "to": 23 },
+  "_activeHours": "この時間帯（ローカル時刻）だけ動作します。深夜の連続出品を避けるため。",
+
+  "browserChannel": "",
+  "_browserChannel": "空ならPlaywright同梱のChromium。'chrome' にするとインストール済みのGoogle Chromeを使います。",
+
+  "browserExecutablePath": "",
+  "_browserExecutablePath": "通常は空でOK。Dockerなどで特定のChromium実行ファイルを使いたい場合だけパスを指定します。"
+}

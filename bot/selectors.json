@@ -1,0 +1,97 @@
+{
+  "_README": [
+    "Yahoo!フリマのDOMは非公開・頻繁に変わるため、サイト依存の情報は全部このファイルに隔離してあります。",
+    "コードは一切書き換えずに、ここだけ直せば追従できます。",
+    "各項目は『候補の配列』です。上から順に試して、最初に見つかったものを使います。",
+    "実際の値の調べ方: `npm run inspect` を実行すると、ログイン済みブラウザで各画面のHTMLと候補セレクタを",
+    "data/inspect/ に保存します。そこを見ながらこのファイルを埋めてください。"
+  ],
+
+  "baseUrl": "https://paypayfleamarket.yahoo.co.jp",
+
+  "urls": {
+    "_comment": "画面のURL。inspectで実際のURLを確認して直してください。",
+    "login": "https://login.yahoo.co.jp/config/login",
+    "myListings": ["/mypage/listing", "/mypage/listings", "/mypage/sell"],
+    "sell": "/sell",
+    "itemDetail": "/item/{itemId}"
+  },
+
+  "loggedInCheck": {
+    "_comment": "ログイン済みかどうかの判定。これが見つかればログイン済みとみなします。",
+    "candidates": [
+      "a[href*='/mypage']",
+      "[data-cl-params*='mypage']",
+      "header [aria-label*='マイページ']"
+    ],
+    "loggedOutCandidates": [
+      "a[href*='login.yahoo.co.jp']",
+      "text=ログイン"
+    ]
+  },
+
+  "myListings": {
+    "_comment": "出品した商品一覧ページの各カード。itemLink から商品IDを取り出します。",
+    "itemCard": [
+      "li:has(a[href*='/item/'])",
+      "[class*='ItemCard']",
+      "article:has(a[href*='/item/'])"
+    ],
+    "itemLink": ["a[href*='/item/']"],
+    "itemTitle": ["[class*='title']", "h3", "h2"],
+    "itemPrice": ["[class*='price']"],
+    "soldBadge": {
+      "_comment": "売り切れを示すバッジ。テキスト一致で見るのが一番壊れにくい。",
+      "textCandidates": ["売却済み", "SOLD", "Sold", "売り切れ", "取引中"],
+      "selectorCandidates": ["[class*='sold']", "[class*='Sold']", "[class*='badge']"]
+    },
+    "nextPage": ["a[rel='next']", "[class*='pager'] a:has-text('次')"]
+  },
+
+  "itemDetail": {
+    "_comment": "商品詳細ページ。再出品用のスナップショットをここから取ります。",
+    "title": ["h1", "[class*='ItemTitle']", "[class*='title'] h1"],
+    "price": ["[class*='Price']", "[class*='price']"],
+    "description": ["[class*='Description']", "[class*='description']", "section:has-text('商品の説明')"],
+    "images": ["img[src*='item-image']", "[class*='Gallery'] img", "main img"],
+    "_labeledValues": [
+      "「ラベル: 値」形式の項目。dt+dd（隣接）を先に試し、ダメなら :right-of（見た目で右にある要素）を試します。",
+      "サイトの構造が dl でない場合は、inspect の結果を見てここを書き換えてください。"
+    ],
+    "condition": ["dt:has-text('商品の状態') + dd", "dd:right-of(dt:has-text('商品の状態'))"],
+    "category": ["nav[aria-label*='パンくず'] a", "[class*='readcrumb'] a"],
+    "shippingPayer": ["dt:has-text('配送料の負担') + dd", "dd:right-of(dt:has-text('配送料の負担'))"],
+    "shippingMethod": ["dt:has-text('配送の方法') + dd", "dd:right-of(dt:has-text('配送の方法'))"],
+    "shippingFrom": ["dt:has-text('発送元') + dd", "dd:right-of(dt:has-text('発送元'))"],
+    "shippingDays": ["dt:has-text('発送までの日数') + dd", "dd:right-of(dt:has-text('発送までの日数'))"],
+    "soldMark": {
+      "textCandidates": ["売却済み", "SOLD", "この商品は売り切れました"]
+    }
+  },
+
+  "sellForm": {
+    "_comment": [
+      "出品フォーム。Yahoo!フリマは2025年12月からWebブラウザ出品に対応しています。",
+      "fileInput は <input type=file>。画面に出ていなくてもDOMにはあることが多いので setInputFiles が使えます。"
+    ],
+    "startButton": ["a[href*='/sell']", "button:has-text('出品')"],
+    "fileInput": ["input[type='file']"],
+    "title": ["input[name*='title']", "input[placeholder*='商品名']", "#title"],
+    "description": ["textarea[name*='description']", "textarea[placeholder*='説明']", "#description"],
+    "price": ["input[name*='price']", "input[placeholder*='価格']", "#price"],
+    "categoryOpen": ["button:has-text('カテゴリ')", "[class*='category'] button"],
+    "categorySearchInput": ["input[placeholder*='カテゴリ']", "input[type='search']"],
+    "conditionOpen": ["button:has-text('商品の状態')"],
+    "shippingPayerOpen": ["button:has-text('配送料の負担')"],
+    "shippingMethodOpen": ["button:has-text('配送の方法')"],
+    "shippingFromOpen": ["button:has-text('発送元')"],
+    "shippingDaysOpen": ["button:has-text('発送までの日数')"],
+    "optionItemByText": "li:has-text('{text}'), button:has-text('{text}'), label:has-text('{text}')",
+    "submitButton": ["button:has-text('出品する')", "button:has-text('確認')", "button[type='submit']"],
+    "confirmButton": ["button:has-text('出品する')", "button:has-text('この内容で出品')"],
+    "successCheck": {
+      "textCandidates": ["出品しました", "出品が完了", "出品完了"],
+      "urlPattern": "/item/"
+    }
+  }
+}

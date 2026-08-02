@@ -1,0 +1,21 @@
+{
+  "name": "yahoo-furima-relist-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Yahoo!フリマで売れた商品を同じ内容で再出品するローカル常駐ボット",
+  "scripts": {
+    "login": "node src/cli.js login",
+    "watch": "node src/cli.js watch",
+    "once": "node src/cli.js once",
+    "ui": "node src/cli.js ui",
+    "track": "node src/cli.js track",
+    "list": "node src/cli.js list",
+    "relist": "node src/cli.js relist",
+    "inspect": "node src/cli.js inspect",
+    "test": "node test/e2e.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}
