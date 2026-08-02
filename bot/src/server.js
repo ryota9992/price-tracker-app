@@ -13,11 +13,19 @@ const STATUS_LABEL = {
   relisted: '再出品済み',
   error: 'エラー',
   archived: '完了',
+  out_of_stock: '在庫切れ',
 };
 
 function page(config, state) {
   const items = Object.values(state.items).sort((a, b) => {
-    const rank = (item) => (item.status === 'pending_approval' ? 0 : item.status === 'error' ? 1 : 2);
+    const rank = (item) =>
+      item.status === 'pending_approval'
+        ? 0
+        : item.status === 'error'
+          ? 1
+          : item.status === 'out_of_stock'
+            ? 2
+            : 3;
     return rank(a) - rank(b);
   });
 
@@ -42,6 +50,13 @@ function page(config, state) {
           <div class="meta">${snapshot.price ? `¥${Number(snapshot.price).toLocaleString()}` : '価格未取得'}
             ・画像${(snapshot.images || []).length}枚
             ・<a href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.itemId)}</a></div>
+          <form class="stock" method="POST" action="/stock">
+            <input type="hidden" name="itemId" value="${esc(item.itemId)}">
+            在庫
+            <input type="text" name="stock" size="4" value="${typeof item.stock === 'number' ? item.stock : 'none'}">
+            <button>変更</button>
+            <span class="hint">none = 無制限</span>
+          </form>
           ${item.lastError ? `<div class="err">${esc(item.lastError)}</div>` : ''}
         </td>
         <td class="actions">${actions}</td>
@@ -72,6 +87,11 @@ function page(config, state) {
   .actions { white-space: nowrap; }
   button { display: block; margin-bottom: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; font-size: 14px; }
   .go { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .stock { margin-top: 6px; font-size: 13px; color: #666; }
+  .stock input { width: 56px; padding: 3px 6px; border-radius: 6px; border: 1px solid #ccc; }
+  .stock button { display: inline-block; margin: 0 6px 0 4px; padding: 3px 10px; font-size: 13px; }
+  .hint { font-size: 12px; color: #999; }
+  .s-out_of_stock .badge { background: #ddd6fe; }
   @media (prefers-color-scheme: dark) { td { border-color: #333; } .badge { background: #333; } .mode { color: #999; } }
 </style>
 <h1>Yahoo!フリマ 再出品ボット</h1>
@@ -112,6 +132,25 @@ export function startServer(config, selectors) {
         return res.end();
       }
 
+      if (req.method === 'POST' && req.url === '/stock') {
+        const { itemId, stock } = await readBody(req);
+        const value = stock === 'none' || stock === '' ? null : Number(stock);
+        if (value !== null && (!Number.isInteger(value) || value < 0)) {
+          res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+          return res.end('在庫は0以上の整数か none を指定してください。');
+        }
+        store.update((s) => {
+          if (!s.items[itemId]) return;
+          s.items[itemId].stock = value;
+          // 補充されたら在庫切れ状態から監視に戻す
+          if (s.items[itemId].status === 'out_of_stock' && value !== 0) {
+            s.items[itemId].status = 'listed';
+          }
+        });
+        res.writeHead(303, { Location: '/' });
+        return res.end();
+      }
+
       if (req.method === 'POST' && req.url === '/skip') {
         const { itemId } = await readBody(req);
         store.update((s) => {
@@ -128,9 +167,12 @@ export function startServer(config, selectors) {
     }
   });
 
-  // 外部に晒さないよう localhost だけで待ち受ける
-  server.listen(config.uiPort, '127.0.0.1', () => {
-    log.info(`承認画面: http://localhost:${config.uiPort}`);
+  // 既定では外部に晒さないよう localhost だけで待ち受ける。
+  // Docker内ではポート転送が届かないので UI_BIND=0.0.0.0 を指定する
+  // （その場合もホスト側の公開は 127.0.0.1 に絞ること）。
+  const host = process.env.UI_BIND || '127.0.0.1';
+  server.listen(config.uiPort, host, () => {
+    log.info(`承認画面: http://localhost:${config.uiPort}（bind: ${host}）`);
   });
   return server;
 }

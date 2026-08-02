@@ -103,6 +103,49 @@ try {
   const night = { ...config, activeHours: { from: 3, to: 4 } };
   const outside = await checkOnce(night, sel);
   check('稼働時間外はスキップ', outside.skipped === 'hours');
+
+  // 10. 在庫管理（オプトイン）
+  check('在庫未設定はnull＝無制限のまま', store.load().items.bbb222.stock === null);
+
+  // 在庫2でリセットし、売れるたびに減っていくのを見る
+  mock.created = null;
+  store.update((s) => {
+    s.items.aaa111.status = 'listed';
+    s.items.aaa111.stock = 2;
+    delete s.items.new999;
+    s.relistLog = [];
+  });
+  mock.sold = true;
+
+  await checkOnce(auto, sel);
+  const afterFirst = store.load();
+  check('売れたら在庫が1減る', afterFirst.items.aaa111.stock === 1, `→ ${afterFirst.items.aaa111.stock}`);
+  check('在庫が残っていれば再出品する', mock.created === 'new999');
+  check('残り在庫が新商品に引き継がれる', afterFirst.items.new999?.stock === 1,
+    `→ ${afterFirst.items.new999?.stock}`);
+
+  // 最後の1つが売れる → 在庫0なので再出品しない
+  mock.created = null;
+  mock.sold = true;
+  store.update((s) => {
+    s.items.aaa111.status = 'listed'; // モックはaaa111だけを売却済みにするため
+    s.items.aaa111.stock = 1;
+  });
+  await checkOnce(auto, sel);
+  const afterLast = store.load();
+  check('在庫0になったら再出品しない', mock.created === null);
+  check('在庫切れステータスになる', afterLast.items.aaa111.status === 'out_of_stock',
+    `→ ${afterLast.items.aaa111.status}`);
+
+  // 補充したら監視に戻る
+  store.update((s) => {
+    s.items.aaa111.stock = 3;
+    if (s.items.aaa111.status === 'out_of_stock') s.items.aaa111.status = 'listed';
+  });
+  await checkOnce(auto, sel);
+  check('在庫を補充すると再出品が再開する', mock.created === 'new999');
+  check('補充後は在庫が減って続く', store.load().items.aaa111.stock === 2,
+    `→ ${store.load().items.aaa111.stock}`);
 } finally {
   server.close();
   fs.rmSync(path.join(BOT, 'selectors.test.json'), { force: true });

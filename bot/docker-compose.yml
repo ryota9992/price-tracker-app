@@ -1,0 +1,20 @@
+services:
+  relist-bot:
+    build: .
+    restart: unless-stopped
+    volumes:
+      # ログイン情報・監視状態・保存画像を永続化する
+      - ./data:/app/data
+      # セレクタと設定はホスト側で直せるようにしておく（直したら restart するだけ）
+      - ./selectors.json:/app/selectors.json:ro
+      - ./config.json:/app/config.json:ro
+    ports:
+      # 承認画面。127.0.0.1 に絞ってあるので、VPSから見るときは
+      # ssh -L 8787:localhost:8787 user@your-vps でトンネルしてください。
+      # 外部に直接公開すると誰でも出品操作できてしまうので危険です。
+      - "127.0.0.1:8787:8787"
+    environment:
+      - TZ=Asia/Tokyo
+      # コンテナ内では全インターフェースで待ち受けないとポート転送が届かない。
+      # 外部公開は上の ports 側で 127.0.0.1 に絞っている。
+      - UI_BIND=0.0.0.0

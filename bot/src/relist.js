@@ -17,7 +17,7 @@ export function withinActiveHours(config) {
 }
 
 /** 監視対象に追加する（スナップショットもここで取っておく）。 */
-export async function trackItems(config, selectors, { itemIds, all }) {
+export async function trackItems(config, selectors, { itemIds, all, stock = null }) {
   const { browser, context } = await launch(config);
   try {
     const page = await context.newPage();
@@ -46,10 +46,16 @@ export async function trackItems(config, selectors, { itemIds, all }) {
           status: 'listed',
           trackedAt: new Date().toISOString(),
           snapshot,
+          // null = 在庫無制限（売れるたびに再出品し続ける）
+          stock,
         };
       });
       added.push({ itemId, title: snapshot.title, images: snapshot.images.length });
-      log.info(`監視に追加: ${itemId} 「${snapshot.title}」 画像${snapshot.images.length}枚`);
+      log.info(
+        `監視に追加: ${itemId} 「${snapshot.title}」 画像${snapshot.images.length}枚 在庫${
+          stock === null ? '無制限' : stock
+        }`
+      );
       await pace(config);
     }
     return added;
@@ -104,12 +110,34 @@ export async function checkOnce(config, selectors) {
       }
       if (!found.sold) continue;
 
-      log.info(`売却を検知: ${item.itemId}「${item.snapshot?.title || found.title}」`);
+      const title = item.snapshot?.title || found.title;
+      log.info(`売却を検知: ${item.itemId}「${title}」`);
       detected.push(item.itemId);
+
+      // 在庫を1つ減らす。stock 未設定の商品は無制限としてそのまま回り続ける。
+      const remaining = store.update((s) => {
+        const target = s.items[item.itemId];
+        target.soldDetectedAt = new Date().toISOString();
+        if (typeof target.stock !== 'number') return null;
+        target.stock = Math.max(0, target.stock - 1);
+        return target.stock;
+      });
+
+      if (remaining === 0) {
+        store.update((s) => {
+          s.items[item.itemId].status = 'out_of_stock';
+        });
+        log.info(`${item.itemId} は在庫が尽きたため再出品しません。`);
+        await notify(
+          config,
+          '在庫が尽きました',
+          `「${title}」が売れましたが、在庫が0になったため再出品しません。\n補充したら http://localhost:${config.uiPort} で在庫数を設定してください。`
+        );
+        continue;
+      }
 
       store.update((s) => {
         s.items[item.itemId].status = config.autoApprove ? 'relisting' : 'pending_approval';
-        s.items[item.itemId].soldDetectedAt = new Date().toISOString();
         if (!config.autoApprove) s.items[item.itemId].pendingSince = new Date().toISOString();
       });
 
@@ -120,7 +148,7 @@ export async function checkOnce(config, selectors) {
         await notify(
           config,
           '売れました！再出品の承認待ち',
-          `「${item.snapshot?.title || found.title}」\nhttp://localhost:${config.uiPort} で承認してください。`
+          `「${title}」${remaining !== null ? `（残り在庫 ${remaining}）` : ''}\nhttp://localhost:${config.uiPort} で承認してください。`
         );
       }
     }
@@ -192,6 +220,8 @@ export async function executeRelist(config, selectors, itemId, { context: given 
           trackedAt: new Date().toISOString(),
           // 画像は元商品のフォルダのものを使い回す
           snapshot: { ...item.snapshot, itemId: result.newItemId },
+          // 残りの在庫数も引き継ぐ（未設定なら無制限のまま）
+          stock: item.stock,
           relistedFrom: itemId,
         };
         s.items[itemId].status = 'archived';

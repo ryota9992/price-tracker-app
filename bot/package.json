@@ -13,9 +13,10 @@
     "list": "node src/cli.js list",
     "relist": "node src/cli.js relist",
     "inspect": "node src/cli.js inspect",
-    "test": "node test/e2e.mjs"
+    "test": "node test/e2e.mjs",
+    "stock": "node src/cli.js stock"
   },
   "dependencies": {
-    "playwright": "^1.49.0"
+    "playwright": "1.62.1"
   }
 }
