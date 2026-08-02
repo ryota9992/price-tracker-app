@@ -1,8 +1,8 @@
-import { loadConfig, loadSelectors, ensureDirs, AUTH_FILE } from './config.js';
+import { loadConfig, loadSelectors, ensureDirs, ensureConfig, AUTH_FILE } from './config.js';
 import { launch, saveAuth, hasAuth } from './browser.js';
-import { inspectPage } from './inspect.js';
+import { runInspect } from './inspect.js';
 import { trackItems, checkOnce, executeRelist } from './relist.js';
-import { watch } from './watcher.js';
+import { startWatching } from './watcher.js';
 import { startServer } from './server.js';
 import * as store from './store.js';
 import * as furima from './furima.js';
@@ -43,20 +43,12 @@ async function main() {
       requireAuth();
       const config = loadConfig();
       const { browser, context } = await launch(config, { headless: false });
-      const page = await context.newPage();
-      const listingUrls = Array.isArray(selectors.urls.myListings)
-        ? selectors.urls.myListings
-        : [selectors.urls.myListings];
-
-      await inspectPage(page, 'top', selectors.baseUrl);
-      for (const [index, url] of listingUrls.entries()) {
-        await inspectPage(page, `mylistings-${index}`, selectors.baseUrl + url);
+      try {
+        await runInspect(await context.newPage(), selectors, args[0]);
+      } finally {
+        await browser.close();
       }
-      await inspectPage(page, 'sell', selectors.baseUrl + selectors.urls.sell);
-      if (args[0]) await inspectPage(page, 'item', furima.itemUrl(selectors, args[0]));
-
       console.log('\ndata/inspect/ の *.hints.json と *.png を見ながら selectors.json を修正してください。');
-      await browser.close();
       break;
     }
 
@@ -144,7 +136,18 @@ async function main() {
     case 'watch': {
       requireAuth();
       const config = loadConfig();
-      await watch(config, selectors);
+      startServer(config, selectors);
+      await startWatching(() => loadConfig(), selectors);
+      break;
+    }
+
+    // ダブルクリック起動用。ログインも含めて全部画面から操作する。
+    case 'app': {
+      ensureConfig();
+      const config = loadConfig();
+      startServer(config, selectors);
+      console.log(`\n操作画面を開いてください → http://localhost:${config.uiPort}\n`);
+      console.log('（このウィンドウは閉じないでください。閉じると停止します）');
       break;
     }
 

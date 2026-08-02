@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Yahoo!フリマで売れた商品を同じ内容で再出品するローカル常駐ボット",
   "scripts": {
+    "app": "node src/cli.js app",
     "login": "node src/cli.js login",
     "watch": "node src/cli.js watch",
     "once": "node src/cli.js once",
@@ -13,7 +14,7 @@
     "list": "node src/cli.js list",
     "relist": "node src/cli.js relist",
     "inspect": "node src/cli.js inspect",
-    "test": "node test/e2e.mjs",
+    "test": "node test/e2e.mjs && node test/ui-e2e.mjs",
     "stock": "node src/cli.js stock"
   },
   "dependencies": {

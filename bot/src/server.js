@@ -1,169 +1,187 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import path from 'node:path';
+import { loadConfig, saveConfig, INSPECT_DIR } from './config.js';
+import { recentLogs, log } from './logger.js';
 import * as store from './store.js';
-import { executeRelist } from './relist.js';
+import * as jobs from './jobs.js';
+import { executeRelist, stopRequested } from './relist.js';
 import { STOP_FILE } from './config.js';
-import { log } from './logger.js';
-
-const STATUS_LABEL = {
-  listed: '出品中',
-  sold: '売却済み',
-  pending_approval: '承認待ち',
-  relisting: '再出品中',
-  relisted: '再出品済み',
-  error: 'エラー',
-  archived: '完了',
-  out_of_stock: '在庫切れ',
-};
-
-function page(config, state) {
-  const items = Object.values(state.items).sort((a, b) => {
-    const rank = (item) =>
-      item.status === 'pending_approval'
-        ? 0
-        : item.status === 'error'
-          ? 1
-          : item.status === 'out_of_stock'
-            ? 2
-            : 3;
-    return rank(a) - rank(b);
-  });
-
-  const rows = items
-    .map((item) => {
-      const snapshot = item.snapshot || {};
-      const actions =
-        item.status === 'pending_approval' || item.status === 'error'
-          ? `<form method="POST" action="/relist" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='処理中…'">
-               <input type="hidden" name="itemId" value="${esc(item.itemId)}">
-               <button class="go">この内容で再出品</button>
-             </form>
-             <form method="POST" action="/skip">
-               <input type="hidden" name="itemId" value="${esc(item.itemId)}">
-               <button class="skip">今回は出さない</button>
-             </form>`
-          : '';
-      return `<tr class="s-${esc(item.status)}">
-        <td><span class="badge">${esc(STATUS_LABEL[item.status] || item.status)}</span></td>
-        <td>
-          <div class="title">${esc(snapshot.title || '(タイトル未取得)')}</div>
-          <div class="meta">${snapshot.price ? `¥${Number(snapshot.price).toLocaleString()}` : '価格未取得'}
-            ・画像${(snapshot.images || []).length}枚
-            ・<a href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.itemId)}</a></div>
-          <form class="stock" method="POST" action="/stock">
-            <input type="hidden" name="itemId" value="${esc(item.itemId)}">
-            在庫
-            <input type="text" name="stock" size="4" value="${typeof item.stock === 'number' ? item.stock : 'none'}">
-            <button>変更</button>
-            <span class="hint">none = 無制限</span>
-          </form>
-          ${item.lastError ? `<div class="err">${esc(item.lastError)}</div>` : ''}
-        </td>
-        <td class="actions">${actions}</td>
-      </tr>`;
-    })
-    .join('');
-
-  const mode = config.autoApprove ? '完全自動' : '半自動（承認制）';
-  const dry = config.dryRun ? '<span class="warn">dryRun 有効（実際には出品されません）</span>' : '';
-  const stopped = fs.existsSync(STOP_FILE) ? '<span class="warn">停止中（data/STOP を削除すると再開）</span>' : '';
-
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Yahoo!フリマ 再出品ボット</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: -apple-system, "Hiragino Sans", sans-serif; margin: 0; padding: 24px; line-height: 1.6; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .mode { color: #666; margin-bottom: 16px; }
-  .warn { color: #b45309; font-weight: 600; margin-left: 8px; }
-  table { width: 100%; border-collapse: collapse; max-width: 900px; }
-  td { border-top: 1px solid #ddd; padding: 12px 8px; vertical-align: top; }
-  .title { font-weight: 600; }
-  .meta { color: #666; font-size: 13px; }
-  .err { color: #b91c1c; font-size: 13px; margin-top: 4px; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #eee; font-size: 12px; white-space: nowrap; }
-  .s-pending_approval .badge { background: #fde68a; }
-  .s-error .badge { background: #fecaca; }
-  .actions { white-space: nowrap; }
-  button { display: block; margin-bottom: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; font-size: 14px; }
-  .go { background: #2563eb; color: #fff; border-color: #2563eb; }
-  .stock { margin-top: 6px; font-size: 13px; color: #666; }
-  .stock input { width: 56px; padding: 3px 6px; border-radius: 6px; border: 1px solid #ccc; }
-  .stock button { display: inline-block; margin: 0 6px 0 4px; padding: 3px 10px; font-size: 13px; }
-  .hint { font-size: 12px; color: #999; }
-  .s-out_of_stock .badge { background: #ddd6fe; }
-  @media (prefers-color-scheme: dark) { td { border-color: #333; } .badge { background: #333; } .mode { color: #999; } }
-</style>
-<h1>Yahoo!フリマ 再出品ボット</h1>
-<div class="mode">モード: ${mode}${dry}${stopped}　／　本日の再出品: ${store.relistsToday(state)} / ${config.maxRelistsPerDay} 件</div>
-<table>${rows || '<tr><td>監視対象がありません。<code>npm run track -- --all</code> を実行してください。</td></tr>'}</table>
-<script>setTimeout(() => location.reload(), 30000)</script>`;
-}
-
-function esc(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
-  );
-}
+import { startWatching, stopWatching, isWatching, nextCheck } from './watcher.js';
+import { itemIdFromUrl } from './furima.js';
+import { renderPage } from './ui.js';
 
 function readBody(req) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (chunk) => (data += chunk));
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (data.length > 1e6) reject(new Error('リクエストが大きすぎます'));
+    });
     req.on('end', () => resolve(Object.fromEntries(new URLSearchParams(data))));
   });
 }
 
-export function startServer(config, selectors) {
+function json(res, code, body) {
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(body));
+}
+
+export function startServer(initialConfig, selectors) {
+  // 設定は画面から変更できるので、常に最新を読み直せるようにしておく
+  let config = initialConfig;
+  const getConfig = () => config;
+
   const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+    const post = req.method === 'POST';
+
     try {
-      if (req.method === 'GET' && (req.url === '/' || req.url.startsWith('/?'))) {
+      // ---- 画面 ----
+      if (!post && url.pathname === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end(page(config, store.load()));
+        return res.end(renderPage());
       }
 
-      if (req.method === 'POST' && req.url === '/relist') {
-        const { itemId } = await readBody(req);
-        // 出品処理は数十秒かかるので待たずに画面を返す
-        executeRelist(config, selectors, itemId).catch((error) =>
-          log.error('UIからの再出品に失敗:', error.message)
-        );
-        res.writeHead(303, { Location: '/' });
-        return res.end();
+      // ---- 状態の取得（画面が定期的に読みに来る） ----
+      if (!post && url.pathname === '/api/status') {
+        const state = store.load();
+        return json(res, 200, {
+          config: {
+            autoApprove: config.autoApprove,
+            dryRun: config.dryRun,
+            pollIntervalMinutes: config.pollIntervalMinutes,
+            maxRelistsPerDay: config.maxRelistsPerDay,
+          },
+          ...jobs.jobStatus(),
+          watching: isWatching(),
+          nextCheckAt: nextCheck(),
+          stopped: stopRequested(),
+          relistsToday: store.relistsToday(state),
+          selectorsReady: fs.existsSync(path.join(INSPECT_DIR, 'mylistings-0.hints.json')),
+          items: Object.values(state.items).map((item) => ({
+            itemId: item.itemId,
+            url: item.url,
+            status: item.status,
+            stock: typeof item.stock === 'number' ? item.stock : null,
+            title: item.snapshot?.title || '',
+            price: item.snapshot?.price ?? null,
+            images: item.snapshot?.images?.length || 0,
+            lastError: item.lastError || null,
+          })),
+          logs: recentLogs.slice(-80),
+        });
       }
 
-      if (req.method === 'POST' && req.url === '/stock') {
-        const { itemId, stock } = await readBody(req);
-        const value = stock === 'none' || stock === '' ? null : Number(stock);
-        if (value !== null && (!Number.isInteger(value) || value < 0)) {
-          res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
-          return res.end('在庫は0以上の整数か none を指定してください。');
-        }
-        store.update((s) => {
-          if (!s.items[itemId]) return;
-          s.items[itemId].stock = value;
-          // 補充されたら在庫切れ状態から監視に戻す
-          if (s.items[itemId].status === 'out_of_stock' && value !== 0) {
-            s.items[itemId].status = 'listed';
+      if (!post) return json(res, 404, { error: 'not found' });
+
+      // ---- 操作 ----
+      const body = await readBody(req);
+
+      switch (url.pathname) {
+        case '/api/login/open':
+          await jobs.openLogin(config, selectors);
+          return json(res, 200, { ok: true });
+
+        case '/api/login/done':
+          await jobs.finishLogin();
+          return json(res, 200, { ok: true });
+
+        case '/api/login/cancel':
+          await jobs.cancelLogin();
+          return json(res, 200, { ok: true });
+
+        case '/api/inspect':
+          jobs.startInspect(config, selectors, body.itemId || null);
+          return json(res, 200, { ok: true });
+
+        case '/api/track-all':
+          jobs.startTrackAll(config, selectors);
+          return json(res, 200, { ok: true });
+
+        case '/api/track-one': {
+          const itemId = itemIdFromUrl(body.url) || body.url?.trim();
+          if (!itemId) return json(res, 400, { error: '商品URLまたは商品IDを入力してください。' });
+          const stock = body.stock === '' || body.stock === 'none' ? null : Number(body.stock);
+          if (stock !== null && (!Number.isInteger(stock) || stock < 0)) {
+            return json(res, 400, { error: '在庫は0以上の整数か none にしてください。' });
           }
-        });
-        res.writeHead(303, { Location: '/' });
-        return res.end();
-      }
+          jobs.startTrackOne(config, selectors, itemId, stock);
+          return json(res, 200, { ok: true });
+        }
 
-      if (req.method === 'POST' && req.url === '/skip') {
-        const { itemId } = await readBody(req);
-        store.update((s) => {
-          if (s.items[itemId]) s.items[itemId].status = 'archived';
-        });
-        res.writeHead(303, { Location: '/' });
-        return res.end();
-      }
+        case '/api/watch/start':
+          if (!jobs.jobStatus().loggedIn) {
+            return json(res, 400, { error: '先にログインしてください。' });
+          }
+          startWatching(getConfig, selectors).catch((error) =>
+            log.error('監視ループが落ちました:', error.message)
+          );
+          return json(res, 200, { ok: true });
 
-      res.writeHead(404).end('not found');
+        case '/api/watch/stop':
+          stopWatching();
+          return json(res, 200, { ok: true });
+
+        case '/api/relist':
+          // 数十秒かかるので待たずに返す。結果はログに出る。
+          jobs.startJob('再出品', () => executeRelist(config, selectors, body.itemId));
+          return json(res, 200, { ok: true });
+
+        case '/api/skip':
+          store.update((s) => {
+            if (s.items[body.itemId]) s.items[body.itemId].status = 'archived';
+          });
+          return json(res, 200, { ok: true });
+
+        case '/api/stock': {
+          const value = body.stock === 'none' || body.stock === '' ? null : Number(body.stock);
+          if (value !== null && (!Number.isInteger(value) || value < 0)) {
+            return json(res, 400, { error: '在庫は0以上の整数か none にしてください。' });
+          }
+          store.update((s) => {
+            const item = s.items[body.itemId];
+            if (!item) return;
+            item.stock = value;
+            // 補充されたら在庫切れ状態から監視に戻す
+            if (item.status === 'out_of_stock' && value !== 0) item.status = 'listed';
+          });
+          return json(res, 200, { ok: true });
+        }
+
+        case '/api/settings': {
+          const partial = {};
+          if ('autoApprove' in body) partial.autoApprove = body.autoApprove === 'true';
+          if ('dryRun' in body) partial.dryRun = body.dryRun === 'true';
+          if ('pollIntervalMinutes' in body) {
+            const minutes = Number(body.pollIntervalMinutes);
+            if (!Number.isInteger(minutes) || minutes < 10) {
+              return json(res, 400, { error: 'チェック間隔は10分以上にしてください。' });
+            }
+            partial.pollIntervalMinutes = minutes;
+          }
+          config = saveConfig(partial);
+          log.info('設定を変更しました:', JSON.stringify(partial));
+          return json(res, 200, { ok: true });
+        }
+
+        case '/api/emergency-stop':
+          if (body.on === 'true') {
+            fs.writeFileSync(STOP_FILE, '');
+            stopWatching();
+            log.warn('緊急停止しました。');
+          } else {
+            fs.rmSync(STOP_FILE, { force: true });
+            log.info('緊急停止を解除しました。');
+          }
+          return json(res, 200, { ok: true });
+
+        default:
+          return json(res, 404, { error: 'not found' });
+      }
     } catch (error) {
-      log.error('UIエラー:', error.message);
-      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }).end(error.message);
+      log.error('画面の操作でエラー:', error.message);
+      return json(res, 500, { error: error.message });
     }
   });
 
@@ -172,7 +190,7 @@ export function startServer(config, selectors) {
   // （その場合もホスト側の公開は 127.0.0.1 に絞ること）。
   const host = process.env.UI_BIND || '127.0.0.1';
   server.listen(config.uiPort, host, () => {
-    log.info(`承認画面: http://localhost:${config.uiPort}（bind: ${host}）`);
+    log.info(`操作画面: http://localhost:${config.uiPort}（bind: ${host}）`);
   });
   return server;
 }

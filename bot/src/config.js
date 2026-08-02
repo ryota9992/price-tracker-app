@@ -54,6 +54,26 @@ export function loadConfig() {
   return config;
 }
 
+/** 画面から設定を変更する。_コメント行は残したまま値だけ差し替える。 */
+export function saveConfig(partial) {
+  const file = path.join(ROOT, 'config.json');
+  const raw = readJson(file);
+  for (const [key, value] of Object.entries(partial)) {
+    raw[key] = value;
+  }
+  fs.writeFileSync(file, JSON.stringify(raw, null, 2));
+  return loadConfig();
+}
+
+/** config.json がなければ example から作る（初回起動用）。 */
+export function ensureConfig() {
+  const file = path.join(ROOT, 'config.json');
+  if (!fs.existsSync(file)) {
+    fs.copyFileSync(path.join(ROOT, 'config.example.json'), file);
+  }
+  return file;
+}
+
 export function loadSelectors() {
   return stripComments(readJson(path.join(ROOT, 'selectors.json')));
 }

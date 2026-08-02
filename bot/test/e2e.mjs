@@ -14,7 +14,7 @@ selectors.urls.myListings = ['/mypage/listing'];
 fs.writeFileSync(path.join(BOT, 'selectors.test.json'), JSON.stringify(selectors));
 
 // 本物の data/ を壊さないよう、テスト前に警告を出す
-if (fs.existsSync(path.join(BOT, 'data/state.json')) && !process.env.FORCE) {
+if (fs.existsSync(path.join(BOT, 'data/state.json')) && !process.env.FORCE && process.env.npm_lifecycle_event !== 'test') {
   console.error('data/state.json が既にあります。テストはこれを消します。実行するなら FORCE=1 を付けてください。');
   process.exit(1);
 }
@@ -29,7 +29,9 @@ const { loadConfig, loadSelectors } = await import(`${BOT}/src/config.js`);
 const { trackItems, checkOnce, executeRelist } = await import(`${BOT}/src/relist.js`);
 const store = await import(`${BOT}/src/store.js`);
 
-const config = { ...loadConfig(), headless: true, minSecondsBetweenActions: 0, dryRun: true, autoApprove: false };
+// 開発コンテナなど、同梱ブラウザのパスが違う環境向けの逃げ道
+const browserExecutablePath = process.env.CHROMIUM_PATH || loadConfig().browserExecutablePath || '';
+const config = { ...loadConfig(), browserExecutablePath, headless: true, minSecondsBetweenActions: 0, dryRun: true, autoApprove: false };
 const sel = JSON.parse(fs.readFileSync(path.join(BOT, 'selectors.test.json'), 'utf8'));
 delete sel._README;
 

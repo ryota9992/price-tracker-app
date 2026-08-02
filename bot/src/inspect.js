@@ -3,6 +3,23 @@ import path from 'node:path';
 import { INSPECT_DIR, ensureDirs } from './config.js';
 import { log } from './logger.js';
 
+/** 調査対象の画面をひととおり回る。CLIからも画面からも使う。 */
+export async function runInspect(page, selectors, itemId) {
+  const listingUrls = Array.isArray(selectors.urls.myListings)
+    ? selectors.urls.myListings
+    : [selectors.urls.myListings];
+
+  await inspectPage(page, 'top', selectors.baseUrl);
+  for (const [index, url] of listingUrls.entries()) {
+    await inspectPage(page, `mylistings-${index}`, selectors.baseUrl + url);
+  }
+  await inspectPage(page, 'sell', selectors.baseUrl + selectors.urls.sell);
+  if (itemId) {
+    await inspectPage(page, 'item', selectors.baseUrl + selectors.urls.itemDetail.replace('{itemId}', itemId));
+  }
+  log.info('調査結果を data/inspect/ に保存しました。');
+}
+
 /**
  * ログイン済みブラウザで各画面のHTML・スクリーンショット・候補セレクタを吐き出す。
  * selectors.json を実際のDOMに合わせて埋めるための道具。
