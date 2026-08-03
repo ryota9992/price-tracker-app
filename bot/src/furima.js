@@ -29,13 +29,21 @@ export async function openMyListings(page, selectors) {
     ? selectors.urls.myListings
     : [selectors.urls.myListings];
 
-  for (const candidate of candidates) {
-    const url = candidate.startsWith('http') ? candidate : selectors.baseUrl + candidate;
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => null);
-    if (!response || response.status() >= 400) continue;
-    // 商品リンクが1つでも描画されれば正しいページとみなす
-    const anyItem = await findFirst(page, selectors.myListings.itemLink, { timeout: 8000 });
-    if (anyItem) return url;
+  // 一覧はJSで描画されるため、混んでいると初回だけ間に合わないことがある。
+  // 1度きりで諦めず、間を置いて読み直す。
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    for (const candidate of candidates) {
+      const url = candidate.startsWith('http') ? candidate : selectors.baseUrl + candidate;
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => null);
+      if (!response || response.status() >= 400) continue;
+      // 商品リンクが1つでも描画されれば正しいページとみなす
+      const anyItem = await findFirst(page, selectors.myListings.itemLink, { timeout: 15000 });
+      if (anyItem) return url;
+    }
+    if (attempt === 1) {
+      log.warn('出品した商品一覧を読み込めませんでした。少し待って読み直します。');
+      await page.waitForTimeout(5000);
+    }
   }
   throw new Error(
     '出品した商品一覧ページを開けませんでした。selectors.json の urls.myListings を `npm run inspect` の結果を見て修正してください。'
@@ -142,7 +150,7 @@ function cleanValue(text) {
 }
 
 async function readCategory(page, detail) {
-  const links = page.locator(detail.category[0]);
+  const links = page.locator(await resolveWorkingSelector(page, detail.category));
   const count = await links.count().catch(() => 0);
   if (!count) return [];
   const parts = [];
@@ -157,31 +165,54 @@ async function downloadImages(context, page, selectors, itemId) {
   const dir = path.join(IMAGE_DIR, itemId);
   fs.mkdirSync(dir, { recursive: true });
 
-  const imgs = page.locator(selectors.itemDetail.images[0]);
-  const count = await imgs.count().catch(() => 0);
+  // 候補を上から順に試し、実際に画像が取れたものを採用する。
+  // 1つ目の候補しか見ないと、サイト側の変更で画像0枚のまま気づけない。
   const urls = [];
-  for (let i = 0; i < count; i++) {
-    const src = await imgs.nth(i).getAttribute('src').catch(() => null);
-    if (!src) continue;
-    // 相対パスや //host 形式でも取り込めるよう絶対URLに直す
-    const absolute = new URL(src, page.url()).href;
-    if (!urls.includes(absolute)) urls.push(absolute);
+  for (const selector of selectors.itemDetail.images) {
+    const imgs = page.locator(selector);
+    const count = await imgs.count().catch(() => 0);
+    for (let i = 0; i < count; i++) {
+      const src =
+        (await imgs.nth(i).getAttribute('src').catch(() => null)) ||
+        (await imgs.nth(i).getAttribute('data-src').catch(() => null));
+      if (!src || src.startsWith('data:')) continue;
+      // 相対パスや //host 形式でも取り込めるよう絶対URLに直す
+      const absolute = new URL(src, page.url()).href;
+      if (!urls.includes(absolute)) urls.push(absolute);
+    }
+    if (urls.length) break;
+  }
+
+  if (urls.length === 0) {
+    log.warn(
+      `商品 ${itemId} の画像が1枚も見つかりませんでした。selectors.json の itemDetail.images を確認してください。`
+    );
+    return [];
   }
 
   const saved = [];
+  let tooSmall = 0;
   for (const [index, url] of urls.slice(0, 10).entries()) {
     try {
       const response = await context.request.get(url);
       if (!response.ok()) continue;
       const buffer = await response.body();
       // 極端に小さい画像はアイコン類なので除外する
-      if (buffer.length < 8000) continue;
+      if (buffer.length < 8000) {
+        tooSmall += 1;
+        continue;
+      }
       const file = path.join(dir, `${String(index).padStart(2, '0')}.jpg`);
       fs.writeFileSync(file, buffer);
       saved.push(file);
     } catch (error) {
       log.warn('画像の保存に失敗:', url, error.message);
     }
+  }
+  if (saved.length === 0) {
+    log.warn(
+      `商品 ${itemId} の画像候補 ${urls.length} 件はすべて保存できませんでした（小さすぎて除外: ${tooSmall} 件）。`
+    );
   }
   return saved;
 }
