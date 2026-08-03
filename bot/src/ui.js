@@ -80,6 +80,9 @@ export function renderPage() {
 <div class="card" id="c-inspect">
   <h2><span class="num">2</span>画面のつくりを調べる</h2>
   <p class="help">Yahoo!フリマの画面のつくりを自動で調べます。ブラウザが勝手に開いたり閉じたりしますが、触らずに待ってください。1〜2分で終わります。</p>
+  <div class="row" style="margin-bottom:8px">
+    <input type="text" id="inspect-url" placeholder="出品中の商品のURLを貼る（写真の調べ方の確定に使います）" style="flex:1;min-width:240px">
+  </div>
   <div class="row">
     <button id="btn-inspect">調べる</button>
     <span class="meta" id="inspect-note"></span>
@@ -318,7 +321,7 @@ async function refresh() {
 $('btn-login').onclick = () => api('/api/login/open');
 $('btn-login-done').onclick = () => api('/api/login/done');
 $('btn-login-cancel').onclick = () => api('/api/login/cancel');
-$('btn-inspect').onclick = () => api('/api/inspect');
+$('btn-inspect').onclick = () => api('/api/inspect', { itemId: $('inspect-url').value.trim() });
 $('btn-track-all').onclick = () => api('/api/track-all');
 $('btn-track-one').onclick = () => {
   const url = $('track-url').value.trim();

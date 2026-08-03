@@ -11,6 +11,7 @@ const UI_PORT = 8902;
 const selectors = JSON.parse(fs.readFileSync(path.join(BOT, 'selectors.json'), 'utf8'));
 selectors.baseUrl = `http://127.0.0.1:${MOCK_PORT}`;
 selectors.urls.myListings = ['/mypage/listing'];
+selectors.urls.sell = '/sell'; // 本番は別ドメインの絶対URLなので、モック向けに戻す
 delete selectors._README;
 
 if (fs.existsSync(path.join(BOT, 'data/state.json')) && !process.env.FORCE && process.env.npm_lifecycle_event !== 'test') {

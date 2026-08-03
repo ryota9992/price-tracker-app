@@ -11,6 +11,7 @@ const PORT = 8899;
 const selectors = JSON.parse(fs.readFileSync(path.join(BOT, 'selectors.json'), 'utf8'));
 selectors.baseUrl = `http://127.0.0.1:${PORT}`;
 selectors.urls.myListings = ['/mypage/listing'];
+selectors.urls.sell = '/sell'; // 本番は別ドメインの絶対URLなので、モック向けに戻す
 fs.writeFileSync(path.join(BOT, 'selectors.test.json'), JSON.stringify(selectors));
 
 // 本物の data/ を壊さないよう、テスト前に警告を出す

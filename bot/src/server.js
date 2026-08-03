@@ -92,7 +92,8 @@ export function startServer(initialConfig, selectors) {
           return json(res, 200, { ok: true });
 
         case '/api/inspect':
-          jobs.startInspect(config, selectors, body.itemId || null);
+          // URLをそのまま貼られても商品IDだけでも受け付ける
+          jobs.startInspect(config, selectors, itemIdFromUrl(body.itemId) || body.itemId || null);
           return json(res, 200, { ok: true });
 
         case '/api/track-all':

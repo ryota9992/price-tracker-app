@@ -9,11 +9,17 @@
 
   "baseUrl": "https://paypayfleamarket.yahoo.co.jp",
 
+  "_classNameWarning": [
+    "Yahoo!フリマのクラス名は sc-ddcba8cd-2 のような自動生成の名前で、サイト更新のたびに変わります。",
+    "クラス名を直接指定するセレクタは書かないでください。すぐ壊れます。",
+    "href・name・placeholder・表示テキスト・要素の構造で指定するのが安全です。"
+  ],
+
   "urls": {
-    "_comment": "画面のURL。inspectで実際のURLを確認して直してください。",
+    "_comment": "実機のinspect結果（2026-08）で確認したURL。http から始まる場合は baseUrl を付けずにそのまま使います。",
     "login": "https://login.yahoo.co.jp/config/login",
-    "myListings": ["/mypage/listing", "/mypage/listings", "/mypage/sell"],
-    "sell": "/sell",
+    "myListings": ["/my/item/selling", "/mypage/listing"],
+    "sell": "https://paypayfleamarket-sec.yahoo.co.jp/item/add?from=sellTop",
     "itemDetail": "/item/{itemId}"
   },
 

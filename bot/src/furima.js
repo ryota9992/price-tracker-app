@@ -11,7 +11,12 @@ export function itemIdFromUrl(url) {
 }
 
 export function itemUrl(selectors, itemId) {
-  return selectors.baseUrl + selectors.urls.itemDetail.replace('{itemId}', itemId);
+  return absoluteUrl(selectors, selectors.urls.itemDetail.replace('{itemId}', itemId));
+}
+
+/** 別ドメインの画面（出品フォームなど）もあるので、http始まりならそのまま使う。 */
+export function absoluteUrl(selectors, pathOrUrl) {
+  return pathOrUrl.startsWith('http') ? pathOrUrl : selectors.baseUrl + pathOrUrl;
 }
 
 export async function isLoggedIn(page, selectors) {
@@ -33,7 +38,7 @@ export async function openMyListings(page, selectors) {
   // 1度きりで諦めず、間を置いて読み直す。
   for (let attempt = 1; attempt <= 2; attempt++) {
     for (const candidate of candidates) {
-      const url = candidate.startsWith('http') ? candidate : selectors.baseUrl + candidate;
+      const url = absoluteUrl(selectors, candidate);
       const response = await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => null);
       if (!response || response.status() >= 400) continue;
       // 商品リンクが1つでも描画されれば正しいページとみなす
@@ -222,7 +227,7 @@ export async function createListing(context, selectors, snapshot, { dryRun }) {
   const form = selectors.sellForm;
   const page = await context.newPage();
   try {
-    await page.goto(selectors.baseUrl + selectors.urls.sell, { waitUntil: 'domcontentloaded' });
+    await page.goto(absoluteUrl(selectors, selectors.urls.sell), { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
 
     const fileInput = await findFirst(page, form.fileInput, { timeout: 15000 });
