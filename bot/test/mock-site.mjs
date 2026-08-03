@@ -2,7 +2,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 
 // 売れた状態を切り替えられるモックサイト
-export const state = { sold: false, created: null };
+export const state = { sold: false, created: null, copySupported: false };
 
 const IMG = crypto.randomBytes(20000);
 
@@ -69,11 +69,13 @@ export function startMock(port) {
     }
 
     if (url.pathname === '/sell') {
+      // copyItemId 付きで開かれ、対応している設定なら中身が復元された状態にする
+      const copied = state.copySupported && url.searchParams.get('copyItemId');
       return html(
         res,
         page(`<form method="POST" action="/sell/submit" enctype="multipart/form-data">
           <input type="file" name="photos" multiple>
-          <input name="title" placeholder="商品名">
+          <input name="title" placeholder="商品名"${copied ? ' value="ダミー商品A 完全版"' : ''}>
           <textarea name="description" placeholder="説明"></textarea>
           <input name="price" placeholder="価格">
           <button type="submit">出品する</button>

@@ -13,6 +13,7 @@ selectors.baseUrl = `http://127.0.0.1:${PORT}`;
 selectors.urls.myListings = ['/mypage/listing'];
 selectors.urls.soldListings = ['/mypage/sold'];
 selectors.urls.sell = '/sell'; // 本番は別ドメインの絶対URLなので、モック向けに戻す
+selectors.urls.sellCopy = '/sell?copyItemId={itemId}';
 fs.writeFileSync(path.join(BOT, 'selectors.test.json'), JSON.stringify(selectors));
 
 // 本物の data/ を壊さないよう、テスト前に警告を出す
@@ -153,6 +154,14 @@ try {
   check('在庫を補充すると再出品が再開する', mock.created === 'new999');
   check('補充後は在庫が減って続く', store.load().items.aaa111.stock === 2,
     `→ ${store.load().items.aaa111.stock}`);
+  // 11. Yahoo自身の「コピーして出品」が使える場合
+  mock.copySupported = true;
+  mock.created = null;
+  mock.sold = true;
+  store.update((s) => { s.items.aaa111.status = 'listed'; s.items.aaa111.stock = null; });
+  await checkOnce(auto, sel);
+  check('コピー出品が効く場合も再出品できる', mock.created === 'new999');
+  mock.copySupported = false;
 } finally {
   server.close();
   fs.rmSync(path.join(BOT, 'selectors.test.json'), { force: true });

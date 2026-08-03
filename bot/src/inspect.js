@@ -14,12 +14,20 @@ export async function runInspect(page, selectors, itemId) {
   for (const [index, url] of listingUrls.entries()) {
     await inspectPage(page, `mylistings-${index}`, absoluteUrl(selectors, url));
   }
+  // 売却済みページも見ておかないと、売却判定の裏付けが取れない
+  for (const [index, url] of (selectors.urls.soldListings || []).entries()) {
+    await inspectPage(page, `sold-${index}`, absoluteUrl(selectors, url));
+  }
   await inspectPage(page, 'sell', absoluteUrl(selectors, selectors.urls.sell));
 
   // 商品ページは写真の取り方を確定するのに必要。指定がなければ一覧から1つ拾う。
   const target = itemId || (await firstItemIdOnPage(page));
   if (target) {
     await inspectPage(page, 'item', absoluteUrl(selectors, selectors.urls.itemDetail.replace('{itemId}', target)));
+    // Yahoo自身の「コピーして出品」が使えるかを確かめる。使えるならフォームが埋まった状態で開く。
+    if (selectors.urls.sellCopy) {
+      await inspectPage(page, 'sell-copy', selectors.urls.sellCopy.replace('{itemId}', target));
+    }
   } else {
     log.warn('商品ページを調べられませんでした。商品URLを指定して調べ直してください。');
   }
@@ -144,6 +152,17 @@ export async function inspectPage(page, name, url) {
       inputs: collect('input, textarea, select'),
       buttons: collect('button, [role="button"]'),
       headings: collect('h1, h2, h3', 15),
+      // 「商品説明」「商品の情報」の中身がどこに入っているかを掴むための断面。
+      // dl/dt ではなかったので、見出しの隣と親の中身をそのまま控える。
+      sections: Array.from(document.querySelectorAll('h2, h3'))
+        .slice(0, 12)
+        .map((heading) => ({
+          heading: (heading.innerText || '').trim().slice(0, 20),
+          nextTag: heading.nextElementSibling?.tagName?.toLowerCase() || null,
+          nextSelector: heading.nextElementSibling ? describe(heading.nextElementSibling) : null,
+          nextText: (heading.nextElementSibling?.innerText || '').trim().slice(0, 300),
+          parentText: (heading.parentElement?.innerText || '').trim().slice(0, 300),
+        })),
       // 「商品の状態」などのラベルと値の対応
       definitions: Array.from(document.querySelectorAll('dt')).slice(0, 20).map((dt) => ({
         label: (dt.innerText || '').trim().slice(0, 30),

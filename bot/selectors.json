@@ -22,6 +22,13 @@
     "soldListings": ["/my/item/sold"],
     "_soldListings": "売却済みは別ページに分かれている。バッジを探すのではなく、このページに載ったかどうかで判定する。",
     "sell": "https://paypayfleamarket-sec.yahoo.co.jp/item/add?from=sellTop",
+    "sellCopy": "https://paypayfleamarket-sec.yahoo.co.jp/item/add?copyItemId={itemId}",
+    "_sellCopy": [
+      "Yahoo!フリマ自身が持っている「この商品をコピーして出品」の入口とみられるURL。",
+      "商品ページに copyItemId という隠し項目と『出品ページへ』ボタンがあることから推定。",
+      "これが効けば、こちらが1項目ずつ埋めるより確実に『全く同じ内容』を再現できる。",
+      "開いた結果フォームが埋まっていなければ、自動的に手入力方式へ切り替わる。"
+    ],
     "itemDetail": "/item/{itemId}"
   },
 
@@ -72,7 +79,8 @@
       "サイトの構造が dl でない場合は、inspect の結果を見てここを書き換えてください。"
     ],
     "condition": ["dt:has-text('商品の状態') + dd", "dd:right-of(dt:has-text('商品の状態'))"],
-    "category": ["nav[aria-label*='パンくず'] a", "[class*='readcrumb'] a"],
+    "category": ["a[href^='/category/']"],
+    "_category": "パンくずはカテゴリIDへのリンクになっている（/category/2502/36496/36500）。リンク文字がカテゴリ名。",
     "shippingPayer": ["dt:has-text('配送料の負担') + dd", "dd:right-of(dt:has-text('配送料の負担'))"],
     "shippingMethod": ["dt:has-text('配送の方法') + dd", "dd:right-of(dt:has-text('配送の方法'))"],
     "shippingFrom": ["dt:has-text('発送元') + dd", "dd:right-of(dt:has-text('発送元'))"],

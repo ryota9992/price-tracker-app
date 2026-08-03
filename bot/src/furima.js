@@ -219,39 +219,63 @@ async function downloadImages(context, page, selectors, itemId) {
   return saved;
 }
 
+/**
+ * Yahoo!フリマ自身の「コピーして出品」を試す。
+ * 成功すればタイトル等が最初から埋まった状態になるので、こちらで埋め直す必要がない。
+ * 埋まっていなければ false を返し、呼び出し側が手入力方式に切り替える。
+ */
+async function tryCopyListing(page, selectors, snapshot) {
+  if (!selectors.urls.sellCopy) return false;
+  const url = selectors.urls.sellCopy.replace('{itemId}', snapshot.itemId);
+  await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(2000);
+
+  const titleField = await findFirst(page, selectors.sellForm.title, { timeout: 10000 });
+  if (!titleField) return false;
+
+  const filled = await titleField.inputValue().catch(() => '');
+  if (!filled.trim()) {
+    log.info('コピー出品では中身が復元されませんでした。手入力で進めます。');
+    return false;
+  }
+  log.info(`コピー出品が使えました（復元されたタイトル: ${filled}）。`);
+  return true;
+}
+
 /** スナップショットと同じ内容で新規出品する。dryRun のときは公開ボタンを押さない。 */
 export async function createListing(context, selectors, snapshot, { dryRun }) {
   const form = selectors.sellForm;
   const page = await context.newPage();
   try {
-    await page.goto(absoluteUrl(selectors, selectors.urls.sell), { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2000);
+    const copied = await tryCopyListing(page, selectors, snapshot);
 
-    const fileInput = await findFirst(page, form.fileInput, { timeout: 15000 });
-    if (!fileInput) {
-      throw new Error(
-        '出品フォームの画像入力欄が見つかりません。selectors.json の sellForm.fileInput を確認してください。'
-      );
+    if (!copied) {
+      await page.goto(absoluteUrl(selectors, selectors.urls.sell), { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(2000);
+
+      const images = snapshot.images.filter((file) => fs.existsSync(file));
+      if (images.length === 0) {
+        throw new Error('保存済みの商品画像がありません。再出品を中止しました。');
+      }
+      await attachImages(page, form, images);
+
+      await fill(page, form.title, snapshot.title);
+      await fill(page, form.description, snapshot.description);
+      await fill(page, form.price, snapshot.price != null ? String(snapshot.price) : '');
     }
-    const images = snapshot.images.filter((file) => fs.existsSync(file));
-    if (images.length === 0) {
-      throw new Error('保存済みの商品画像がありません。再出品を中止しました。');
+
+    // コピー出品が効いた場合は全項目が復元済みなので、こちらから触らない。
+    if (!copied) {
+      // 発送までの日数と発送元は本物の <select>。クリックではなく選択肢の文字で選ぶ。
+      await pickOption(page, form.shippingDaysSelect, snapshot.shippingDays);
+      await pickOption(page, form.shippingFromSelect, snapshot.shippingFrom);
+      await tickShippingMethod(page, form, snapshot.shippingMethod);
+
+      await choose(page, form, 'categoryOpen', snapshot.category?.[snapshot.category.length - 1]);
+      await choose(page, form, 'conditionOpen', snapshot.condition);
+      await choose(page, form, 'shippingPayerOpen', snapshot.shippingPayer);
     }
-    await fileInput.setInputFiles(images);
-    await page.waitForTimeout(3000);
-
-    await fill(page, form.title, snapshot.title);
-    await fill(page, form.description, snapshot.description);
-    await fill(page, form.price, snapshot.price != null ? String(snapshot.price) : '');
-
-    // 発送までの日数と発送元は本物の <select>。クリックではなく選択肢の文字で選ぶ。
-    await pickOption(page, form.shippingDaysSelect, snapshot.shippingDays);
-    await pickOption(page, form.shippingFromSelect, snapshot.shippingFrom);
-    await tickShippingMethod(page, form, snapshot.shippingMethod);
-
-    await choose(page, form, 'categoryOpen', snapshot.category?.[snapshot.category.length - 1]);
-    await choose(page, form, 'conditionOpen', snapshot.condition);
-    await choose(page, form, 'shippingPayerOpen', snapshot.shippingPayer);
 
     const shot = path.join(IMAGE_DIR, snapshot.itemId, 'sell-form.png');
     await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
@@ -289,6 +313,41 @@ export async function createListing(context, selectors, snapshot, { dryRun }) {
   } finally {
     await page.close();
   }
+}
+
+/**
+ * 写真をフォームに添付する。
+ * 実機の出品フォームには input[type=file] が最初から存在せず、
+ * 「画像を追加する」を押した時点でファイル選択が開く作りだった。
+ * そのため、まず選択ダイアログを捕まえる方式を試し、駄目なら通常のinputに入れる。
+ */
+async function attachImages(page, form, images) {
+  const addButton = page.locator("button:has-text('画像を追加する')").first();
+
+  if (await addButton.count()) {
+    try {
+      const [chooser] = await Promise.all([
+        page.waitForEvent('filechooser', { timeout: 10000 }),
+        addButton.click(),
+      ]);
+      await chooser.setFiles(images);
+      await page.waitForTimeout(3000);
+      log.info(`写真を ${images.length} 枚添付しました。`);
+      return;
+    } catch {
+      log.warn('「画像を追加する」からの添付に失敗しました。別の方法を試します。');
+    }
+  }
+
+  const fileInput = await findFirst(page, form.fileInput, { timeout: 10000 });
+  if (!fileInput) {
+    throw new Error(
+      '写真を添付できませんでした。selectors.json の sellForm.fileInput を確認してください。'
+    );
+  }
+  await fileInput.setInputFiles(images);
+  await page.waitForTimeout(3000);
+  log.info(`写真を ${images.length} 枚添付しました。`);
 }
 
 async function fill(page, candidates, value) {
