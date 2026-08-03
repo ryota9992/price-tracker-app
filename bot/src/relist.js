@@ -24,9 +24,8 @@ export async function trackItems(config, selectors, { itemIds, all, stock = null
     let targets = itemIds || [];
 
     if (all) {
-      await furima.openMyListings(page, selectors);
-      const listings = await furima.scrapeMyListings(page, selectors);
-      targets = listings.filter((item) => !item.sold).map((item) => item.itemId);
+      const { selling } = await furima.fetchListingState(page, selectors);
+      targets = [...selling];
       log.info(`出品中の商品を ${targets.length} 件見つけました。`);
     }
     await page.close();
@@ -94,23 +93,19 @@ export async function checkOnce(config, selectors) {
       throw new Error('ログインが切れています。`npm run login` を実行してください。');
     }
 
-    await furima.openMyListings(page, selectors);
-    const listings = await furima.scrapeMyListings(page, selectors);
+    const { selling, sold } = await furima.fetchListingState(page, selectors);
     await page.close();
-    log.info(`一覧から ${listings.length} 件を取得しました。`);
-
-    const byId = new Map(listings.map((item) => [item.itemId, item]));
 
     for (const item of tracked) {
-      const found = byId.get(item.itemId);
-      // 一覧から消えている＝売却または削除。判定できないものは触らない。
-      if (!found) {
-        log.info(`${item.itemId} が一覧に見つかりません。手動確認が必要です。`);
+      // 売却済みページに載ったら「売れた」。出品中に残っていれば何もしない。
+      if (!sold.has(item.itemId)) {
+        if (!selling.has(item.itemId)) {
+          log.info(`${item.itemId} が出品中にも売却済みにも見つかりません。手動確認が必要です。`);
+        }
         continue;
       }
-      if (!found.sold) continue;
 
-      const title = item.snapshot?.title || found.title;
+      const title = item.snapshot?.title || item.itemId;
       log.info(`売却を検知: ${item.itemId}「${title}」`);
       detected.push(item.itemId);
 

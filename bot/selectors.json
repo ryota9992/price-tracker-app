@@ -18,7 +18,9 @@
   "urls": {
     "_comment": "実機のinspect結果（2026-08）で確認したURL。http から始まる場合は baseUrl を付けずにそのまま使います。",
     "login": "https://login.yahoo.co.jp/config/login",
-    "myListings": ["/my/item/selling", "/mypage/listing"],
+    "myListings": ["/my/item/selling"],
+    "soldListings": ["/my/item/sold"],
+    "_soldListings": "売却済みは別ページに分かれている。バッジを探すのではなく、このページに載ったかどうかで判定する。",
     "sell": "https://paypayfleamarket-sec.yahoo.co.jp/item/add?from=sellTop",
     "itemDetail": "/item/{itemId}"
   },
@@ -37,29 +39,34 @@
   },
 
   "myListings": {
-    "_comment": "出品した商品一覧ページの各カード。itemLink から商品IDを取り出します。",
-    "itemCard": [
-      "li:has(a[href*='/item/'])",
-      "[class*='ItemCard']",
-      "article:has(a[href*='/item/'])"
+    "_comment": [
+      "一覧ページからは商品IDだけを拾います。カードの見た目に依存しないので壊れにくい。",
+      "出品中か売却済みかは、どちらのページに載っていたかで判断します。"
     ],
     "itemLink": ["a[href*='/item/']"],
-    "itemTitle": ["[class*='title']", "h3", "h2"],
-    "itemPrice": ["[class*='price']"],
-    "soldBadge": {
-      "_comment": "売り切れを示すバッジ。テキスト一致で見るのが一番壊れにくい。",
-      "textCandidates": ["売却済み", "SOLD", "Sold", "売り切れ", "取引中"],
-      "selectorCandidates": ["[class*='sold']", "[class*='Sold']", "[class*='badge']"]
-    },
     "nextPage": ["a[rel='next']", "[class*='pager'] a:has-text('次')"]
   },
 
   "itemDetail": {
     "_comment": "商品詳細ページ。再出品用のスナップショットをここから取ります。",
-    "title": ["h1", "[class*='ItemTitle']", "[class*='title'] h1"],
+    "title": ["h1.ItemTitle__Component", "h1"],
     "price": ["[class*='Price']", "[class*='price']"],
-    "description": ["[class*='Description']", "[class*='description']", "section:has-text('商品の説明')"],
-    "images": ["img[src*='item-image']", "[class*='Gallery'] img", "main img"],
+    "description": [
+      "h3:has-text('商品説明') + div",
+      "h3:has-text('商品説明') + p",
+      "[class*='Description']",
+      "[class*='description']"
+    ],
+    "images": [
+      "img[src*='images.auctions.yahoo.co.jp/image/'][src*='/users/']:not([src*='auc-pctr'])"
+    ],
+    "_images": [
+      "商品ページには『この商品をみている人にオススメ』で他人の商品写真が大量に並んでいます。",
+      "他人の写真で出品してしまうと重大な事故になるため、ここは絶対に広げないでください。",
+      "自分の出品写真は auctions.c.yimg.jp の /users/ 配下にあり、",
+      "おすすめ商品の写真はリサイズ用の auc-pctr ドメイン経由なので、それで見分けています。",
+      "`main img` のような広い指定へのフォールバックは、意図的に用意していません。"
+    ],
     "_labeledValues": [
       "「ラベル: 値」形式の項目。dt+dd（隣接）を先に試し、ダメなら :right-of（見た目で右にある要素）を試します。",
       "サイトの構造が dl でない場合は、inspect の結果を見てここを書き換えてください。"
@@ -82,19 +89,27 @@
     ],
     "startButton": ["a[href*='/sell']", "button:has-text('出品')"],
     "fileInput": ["input[type='file']"],
-    "title": ["input[name*='title']", "input[placeholder*='商品名']", "#title"],
-    "description": ["textarea[name*='description']", "textarea[placeholder*='説明']", "#description"],
-    "price": ["input[name*='price']", "input[placeholder*='価格']", "#price"],
+    "title": ["input[placeholder='商品名を入力してください（必須）']", "input[placeholder*='商品名']"],
+    "description": ["textarea"],
+    "price": ["input[placeholder='0']", "input[placeholder*='価格']"],
+    "_selects": "発送までの日数と発送元は本物の <select> なので、クリックではなく選択肢の文字で選びます。",
+    "shippingDaysSelect": ["select[name='timeToShip']"],
+    "shippingFromSelect": ["select[name='prefectures']"],
+    "shippingMethodCheckbox": {
+      "おてがる配送（ヤマト運輸）": "input[name='YAMATO']",
+      "おてがる配送（日本郵便）": "input[name='JAPAN_POST']"
+    },
     "categoryOpen": ["button:has-text('カテゴリ')", "[class*='category'] button"],
-    "categorySearchInput": ["input[placeholder*='カテゴリ']", "input[type='search']"],
+    "categorySearchInput": ["input[placeholder='キーワードを入力してください']"],
     "conditionOpen": ["button:has-text('商品の状態')"],
     "shippingPayerOpen": ["button:has-text('配送料の負担')"],
     "shippingMethodOpen": ["button:has-text('配送の方法')"],
     "shippingFromOpen": ["button:has-text('発送元')"],
     "shippingDaysOpen": ["button:has-text('発送までの日数')"],
     "optionItemByText": "li:has-text('{text}'), button:has-text('{text}'), label:has-text('{text}')",
-    "submitButton": ["button:has-text('出品する')", "button:has-text('確認')", "button[type='submit']"],
-    "confirmButton": ["button:has-text('出品する')", "button:has-text('この内容で出品')"],
+    "submitButton": ["button:has-text('出品する')"],
+    "_submitButton": "『下書きに保存する』が隣にあります。絶対に押さないよう、出品ボタンだけを厳密に指定しています。",
+    "confirmButton": ["button:has-text('この内容で出品')"],
     "successCheck": {
       "textCandidates": ["出品しました", "出品が完了", "出品完了"],
       "urlPattern": "/item/"

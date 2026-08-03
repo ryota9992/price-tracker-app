@@ -29,10 +29,9 @@ export async function isLoggedIn(page, selectors) {
 }
 
 /** 出品した商品一覧ページを開く。URL候補を順に試す。 */
-export async function openMyListings(page, selectors) {
-  const candidates = Array.isArray(selectors.urls.myListings)
-    ? selectors.urls.myListings
-    : [selectors.urls.myListings];
+export async function openMyListings(page, selectors, key = 'myListings') {
+  const raw = selectors.urls[key];
+  const candidates = Array.isArray(raw) ? raw : [raw];
 
   // 一覧はJSで描画されるため、混んでいると初回だけ間に合わないことがある。
   // 1度きりで諦めず、間を置いて読み直す。
@@ -55,45 +54,43 @@ export async function openMyListings(page, selectors) {
   );
 }
 
-/** 一覧から出品中/売却済みの商品を拾う。 */
-export async function scrapeMyListings(page, selectors) {
-  const cardLocator = await findFirst(page, selectors.myListings.itemCard, { timeout: 8000 });
-  if (!cardLocator) {
-    throw new Error(
-      '出品カードを認識できませんでした。selectors.json の myListings.itemCard を修正してください。'
-    );
-  }
-  // 見つかった候補と同じセレクタで全件取る
-  const workingSelector = await resolveWorkingSelector(page, selectors.myListings.itemCard);
-  const cards = page.locator(workingSelector);
-  const count = await cards.count();
-
-  const soldTexts = selectors.myListings.soldBadge.textCandidates;
-  const results = [];
-
+/**
+ * 一覧ページに載っている商品IDを拾う。
+ * カードの見た目には一切依存せず、商品リンクのIDだけを集める。
+ */
+export async function scrapeItemIds(page, selectors) {
+  const links = page.locator(selectors.myListings.itemLink[0]);
+  const count = await links.count().catch(() => 0);
+  const ids = new Set();
   for (let i = 0; i < count; i++) {
-    const card = cards.nth(i);
-    const href = await card
-      .locator(selectors.myListings.itemLink[0])
-      .first()
-      .getAttribute('href')
-      .catch(() => null);
-    const itemId = href ? itemIdFromUrl(href) : null;
-    if (!itemId) continue;
-
-    const cardText = (await card.innerText().catch(() => '')) || '';
-    const sold = soldTexts.some((text) => cardText.includes(text));
-
-    results.push({
-      itemId,
-      url: href.startsWith('http') ? href : selectors.baseUrl + href,
-      title: (await textOf(card, selectors.myListings.itemTitle)) || cardText.split('\n')[0] || '',
-      sold,
-    });
+    const href = await links.nth(i).getAttribute('href').catch(() => null);
+    const itemId = href && itemIdFromUrl(href);
+    if (itemId) ids.add(itemId);
   }
-  // 同じ商品が複数カードで出てくる場合に備えて重複排除
-  const seen = new Set();
-  return results.filter((item) => !seen.has(item.itemId) && seen.add(item.itemId));
+  return ids;
+}
+
+/**
+ * 出品中と売却済みの両方のページを見て、いまどちらに載っているかを返す。
+ * Yahoo!フリマは出品中(/my/item/selling)と売却済み(/my/item/sold)でページが分かれているので、
+ * 「売却済みバッジ」を探すより、どちらに載っているかで見るほうが確実。
+ */
+export async function fetchListingState(page, selectors) {
+  await openMyListings(page, selectors, 'myListings');
+  const selling = await scrapeItemIds(page, selectors);
+
+  let sold = new Set();
+  try {
+    await openMyListings(page, selectors, 'soldListings');
+    sold = await scrapeItemIds(page, selectors);
+  } catch (error) {
+    // 売却済みが0件だとページに商品リンクが無く、開けたのに空とみなされる。
+    // ここで止めると監視全体が止まってしまうので、警告に留める。
+    log.warn('売却済みページを読めませんでした（売れたものが無いだけの可能性もあります）:', error.message);
+  }
+
+  log.info(`出品中 ${selling.size} 件 / 売却済み ${sold.size} 件を確認しました。`);
+  return { selling, sold };
 }
 
 async function resolveWorkingSelector(scope, candidates) {
@@ -247,12 +244,14 @@ export async function createListing(context, selectors, snapshot, { dryRun }) {
     await fill(page, form.description, snapshot.description);
     await fill(page, form.price, snapshot.price != null ? String(snapshot.price) : '');
 
+    // 発送までの日数と発送元は本物の <select>。クリックではなく選択肢の文字で選ぶ。
+    await pickOption(page, form.shippingDaysSelect, snapshot.shippingDays);
+    await pickOption(page, form.shippingFromSelect, snapshot.shippingFrom);
+    await tickShippingMethod(page, form, snapshot.shippingMethod);
+
     await choose(page, form, 'categoryOpen', snapshot.category?.[snapshot.category.length - 1]);
     await choose(page, form, 'conditionOpen', snapshot.condition);
     await choose(page, form, 'shippingPayerOpen', snapshot.shippingPayer);
-    await choose(page, form, 'shippingMethodOpen', snapshot.shippingMethod);
-    await choose(page, form, 'shippingFromOpen', snapshot.shippingFrom);
-    await choose(page, form, 'shippingDaysOpen', snapshot.shippingDays);
 
     const shot = path.join(IMAGE_DIR, snapshot.itemId, 'sell-form.png');
     await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
@@ -302,6 +301,49 @@ async function fill(page, candidates, value) {
   await field.click().catch(() => {});
   await field.fill(String(value));
   await page.waitForTimeout(400);
+}
+
+/** 本物の <select> を選択肢の表示文字で選ぶ。「1~2日で発送」と「1~2日」のような表記ゆれも吸収する。 */
+async function pickOption(page, candidates, value) {
+  if (!value || !candidates) return;
+  const select = await findFirst(page, candidates, { timeout: 5000 });
+  if (!select) {
+    log.warn(`選択欄が見つかりませんでした（値: ${value}）`);
+    return;
+  }
+  const labels = await select.locator('option').allInnerTexts().catch(() => []);
+  const normalize = (text) => text.replace(/[〜～]/g, '~').replace(/\s|で発送|の地域/g, '');
+  const wanted = normalize(value);
+  const hit =
+    labels.find((label) => normalize(label) === wanted) ||
+    labels.find((label) => normalize(label) && wanted.includes(normalize(label))) ||
+    labels.find((label) => normalize(label).includes(wanted));
+
+  if (!hit) {
+    log.warn(`「${value}」に合う選択肢がありませんでした（候補: ${labels.join(' / ')}）`);
+    return;
+  }
+  await select.selectOption({ label: hit }).catch(async () => {
+    await select.selectOption({ value: hit }).catch(() => {});
+  });
+  await page.waitForTimeout(400);
+}
+
+/** 配送方法はチェックボックス。元の出品と同じものにチェックを入れる。 */
+async function tickShippingMethod(page, form, value) {
+  if (!value || !form.shippingMethodCheckbox) return;
+  for (const [label, selector] of Object.entries(form.shippingMethodCheckbox)) {
+    // 「おてがる配送（ヤマト運輸）」と「おてがる配送」のような部分一致も許す
+    const base = label.replace(/（.*）/, '');
+    if (!value.includes(label) && !(value.includes(base) && label.includes(base))) continue;
+    const box = page.locator(selector).first();
+    if (!(await box.count())) continue;
+    await box.check({ force: true }).catch(() => box.click({ force: true }).catch(() => {}));
+    log.info(`配送方法「${label}」を選びました。`);
+    await page.waitForTimeout(400);
+    return;
+  }
+  log.warn(`配送方法「${value}」に合うものが見つかりませんでした。手動確認が必要です。`);
 }
 
 /** プルダウン/モーダル形式の選択肢を、表示テキストで選ぶ。 */

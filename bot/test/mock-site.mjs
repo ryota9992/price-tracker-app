@@ -13,22 +13,34 @@ export function startMock(port) {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
 
-    if (url.pathname.startsWith('/item-image/')) {
+    // 本番のCDNと同じ形のパスにしておかないと、画像セレクタを検証したことにならない
+    if (url.pathname.includes('/image/')) {
       res.writeHead(200, { 'Content-Type': 'image/jpeg' });
       return res.end(IMG);
     }
 
     if (url.pathname === '/') return html(res, page('<h1>トップ</h1>'));
 
+    // 本番と同じく、出品中と売却済みでページを分ける
     if (url.pathname === '/mypage/listing') {
-      const badge = state.sold ? '<span class="sold">売却済み</span>' : '';
+      const selling = [];
+      if (!state.sold) selling.push('aaa111');
+      selling.push('bbb222');
+      if (state.created) selling.push(state.created);
       return html(
         res,
-        page(`<ul>
-          <li><a href="/item/aaa111"><span class="title">ダミー商品A</span></a>${badge}<span class="price">¥3,480</span></li>
-          <li><a href="/item/bbb222"><span class="title">ダミー商品B</span></a><span class="price">¥1,200</span></li>
-          ${state.created ? `<li><a href="/item/${state.created}"><span class="title">ダミー商品A</span></a><span class="price">¥3,480</span></li>` : ''}
-        </ul>`)
+        page(`<nav id="tab"><a href="/mypage/listing">出品中</a><a href="/mypage/sold">売却済み</a></nav>
+        <ul>${selling
+          .map((id) => `<li><a href="/item/${id}"><span class="title">ダミー商品</span></a></li>`)
+          .join('')}</ul>`)
+      );
+    }
+
+    if (url.pathname === '/mypage/sold') {
+      return html(
+        res,
+        page(`<nav id="tab"><a href="/mypage/listing">出品中</a><a href="/mypage/sold">売却済み</a></nav>
+        <ul>${state.sold ? '<li><a href="/item/aaa111"><span class="title">ダミー商品A</span></a></li>' : ''}</ul>`)
       );
     }
 
@@ -38,7 +50,12 @@ export function startMock(port) {
         page(`<main>
           <h1>ダミー商品A 完全版</h1>
           <div class="price">¥3,480</div>
-          <img src="/item-image/1.jpg"><img src="/item-image/2.jpg">
+          <img src="/images.auctions.yahoo.co.jp/image/dr000/auc0208/users/abc123/i-img1171x1200-1.jpg">
+          <img src="/images.auctions.yahoo.co.jp/image/dr000/auc0208/users/abc123/i-img1171x1200-2.jpg">
+          <!-- 「この商品をみている人にオススメ」の他人の写真。絶対に拾ってはいけない -->
+          <img src="/auc-pctr/i/images.auctions.yahoo.co.jp/image/dr000/auc0208/users/xxx/i-img600x600-9.jpg?pri=l">
+          <!-- 商品カタログの写真。/users/ を含まないので対象外 -->
+          <img src="/images.auctions.yahoo.co.jp/image/dr000/auc-product/product/0/948902003a.jpg">
           <div class="description">これはテスト用の商品説明です。\n改行も含みます。</div>
           <dl>
             <dt>商品の状態</dt><dd>目立った傷や汚れなし</dd>

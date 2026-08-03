@@ -73,8 +73,52 @@ export async function inspectPage(page, name, url) {
         .slice(0, limit)
         .map((el) => ({
           selector: describe(el),
+          // type がわからないと、隠れているファイル選択欄などを見分けられない
+          type: el.type || null,
           text: (el.innerText || el.value || '').trim().slice(0, 60),
         }));
+
+    // Next.jsが埋め込んでいる元データ。DOMを追いかけるより確実なので構造を控えておく。
+    const readNextData = () => {
+      const el = document.getElementById('__NEXT_DATA__');
+      if (!el) return null;
+      let parsed;
+      try {
+        parsed = JSON.parse(el.textContent);
+      } catch {
+        return { error: 'JSONとして読めませんでした' };
+      }
+      const pageProps = parsed?.props?.pageProps ?? {};
+
+      // title と price/description を併せ持つオブジェクトが商品データのはず
+      const queue = [{ node: pageProps, path: 'pageProps' }];
+      let found = null;
+      let steps = 0;
+      while (queue.length && steps < 4000) {
+        steps += 1;
+        const { node, path } = queue.shift();
+        if (!node || typeof node !== 'object') continue;
+        if (!Array.isArray(node) && 'title' in node && ('price' in node || 'description' in node)) {
+          found = { path, keys: Object.keys(node) };
+          const sample = {};
+          for (const [key, value] of Object.entries(node)) {
+            if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
+              sample[key] = String(value).slice(0, 60);
+            } else if (Array.isArray(value)) {
+              sample[key] = `[配列 ${value.length}件]`;
+            } else {
+              sample[key] = `{${Object.keys(value).slice(0, 8).join(',')}}`;
+            }
+          }
+          found.sample = sample;
+          break;
+        }
+        for (const [key, value] of Object.entries(node)) {
+          if (value && typeof value === 'object') queue.push({ node: value, path: `${path}.${key}` });
+        }
+      }
+      return { topKeys: Object.keys(pageProps).slice(0, 30), item: found };
+    };
 
     return {
       url: location.href,
@@ -96,6 +140,7 @@ export async function inspectPage(page, name, url) {
       links: [...new Set(Array.from(document.querySelectorAll('a[href]'))
         .map((a) => a.getAttribute('href'))
         .filter((href) => href && !href.startsWith('#')))].slice(0, 60),
+      nextData: readNextData(),
       inputs: collect('input, textarea, select'),
       buttons: collect('button, [role="button"]'),
       headings: collect('h1, h2, h3', 15),

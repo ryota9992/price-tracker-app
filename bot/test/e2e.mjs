@@ -11,6 +11,7 @@ const PORT = 8899;
 const selectors = JSON.parse(fs.readFileSync(path.join(BOT, 'selectors.json'), 'utf8'));
 selectors.baseUrl = `http://127.0.0.1:${PORT}`;
 selectors.urls.myListings = ['/mypage/listing'];
+selectors.urls.soldListings = ['/mypage/sold'];
 selectors.urls.sell = '/sell'; // 本番は別ドメインの絶対URLなので、モック向けに戻す
 fs.writeFileSync(path.join(BOT, 'selectors.test.json'), JSON.stringify(selectors));
 
@@ -53,7 +54,10 @@ try {
   check('説明取得', snap.description.includes('テスト用の商品説明'), `→ "${snap.description.slice(0, 20)}"`);
   check('商品の状態取得', snap.condition === '目立った傷や汚れなし', `→ "${snap.condition}"`);
   check('配送の方法取得', snap.shippingMethod === 'おてがる配送', `→ "${snap.shippingMethod}"`);
-  check('画像2枚をローカル保存', snap.images.length === 2 && snap.images.every((f) => fs.existsSync(f)));
+  check('自分の商品写真2枚だけを保存', snap.images.length === 2 && snap.images.every((f) => fs.existsSync(f)),
+    `→ ${snap.images.length}枚`);
+  check('おすすめ枠の他人の写真を拾わない',
+    !JSON.stringify(snap.images).includes('auc-pctr') && !JSON.stringify(snap.images).includes('auc-product'));
 
   // 2. まだ売れていないので何も起きない
   const idle = await checkOnce(config, sel);
