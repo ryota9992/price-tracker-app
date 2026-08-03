@@ -31,8 +31,8 @@
   },
   "_notify": "webhookUrl に Slack / Discord の Incoming Webhook URL を入れると通知が飛びます。空なら通知はログのみ。",
 
-  "activeHours": { "from": 8, "to": 23 },
-  "_activeHours": "この時間帯（ローカル時刻）だけ動作します。深夜の連続出品を避けるため。",
+  "activeHours": { "from": 8, "to": 24 },
+  "_activeHours": "この時間帯（ローカル時刻）だけ動作します。深夜の連続出品を避けるため。to は「その時刻まで」の意味で、24なら0時直前まで動きます。",
 
   "browserChannel": "",
   "_browserChannel": "空ならPlaywright同梱のChromium。'chrome' にするとインストール済みのGoogle Chromeを使います。",

@@ -264,6 +264,10 @@ function render(s) {
   if (s.stopped) add('stop', '緊急停止中です。下の「解除」を押すまで何も動きません。');
   if (s.job) add('info', '「' + s.job.name + '」を実行中です。終わるまでお待ちください。');
   if (s.config.dryRun && s.watching) add('warn', 'お試しモードです。売れても実際には出品されません。');
+  if (s.outsideActiveHours) {
+    add('warn', '今は稼働時間外です（' + s.activeHours.from + '時〜' + s.activeHours.to
+      + '時のあいだだけ動きます）。見張りを始めても、この時間帯は確認をとばします。');
+  }
 
   // 1. ログイン
   $('c-login').classList.toggle('done', s.loggedIn && !s.loginOpen);

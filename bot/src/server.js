@@ -5,7 +5,7 @@ import { loadConfig, saveConfig, INSPECT_DIR } from './config.js';
 import { recentLogs, log } from './logger.js';
 import * as store from './store.js';
 import * as jobs from './jobs.js';
-import { executeRelist, stopRequested } from './relist.js';
+import { executeRelist, stopRequested, withinActiveHours } from './relist.js';
 import { STOP_FILE } from './config.js';
 import { startWatching, stopWatching, isWatching, nextCheck } from './watcher.js';
 import { itemIdFromUrl } from './furima.js';
@@ -56,6 +56,8 @@ export function startServer(initialConfig, selectors) {
           ...jobs.jobStatus(),
           watching: isWatching(),
           nextCheckAt: nextCheck(),
+          activeHours: config.activeHours,
+          outsideActiveHours: !withinActiveHours(config),
           stopped: stopRequested(),
           relistsToday: store.relistsToday(state),
           selectorsReady: fs.existsSync(path.join(INSPECT_DIR, 'mylistings-0.hints.json')),

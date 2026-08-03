@@ -19,7 +19,7 @@ const DEFAULTS = {
   minSecondsBetweenActions: 8,
   uiPort: 8787,
   notify: { desktop: true, webhookUrl: '' },
-  activeHours: { from: 8, to: 23 },
+  activeHours: { from: 8, to: 24 },
   browserChannel: '',
 };
 
