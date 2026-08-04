@@ -248,6 +248,7 @@ function CropItem({ item, onRemove }) {
 export default function CropPage() {
   const [items, setItems] = useState([]);
   const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState(null);
 
   const handleFiles = useCallback(async (e) => {
@@ -259,7 +260,11 @@ export default function CropPage() {
     setProcessing(true);
     try {
       const next = [];
-      for (const file of files) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setProgress({ current: i + 1, total: files.length });
+        // 重い処理の前に一度描画させて、進捗表示を更新する
+        await new Promise((r) => setTimeout(r, 0));
         try {
           const img = await loadImageFromFile(file);
           const sourceCanvas = imageToCanvas(img);
@@ -282,6 +287,7 @@ export default function CropPage() {
       setItems((prev) => [...prev, ...next]);
     } finally {
       setProcessing(false);
+      setProgress({ current: 0, total: 0 });
     }
   }, []);
 
@@ -316,9 +322,13 @@ export default function CropPage() {
               disabled={processing}
             />
             <p className="text-gray-700 font-medium">
-              {processing ? '処理中…' : '写真を選択（複数可）'}
+              {processing
+                ? `処理中… (${progress.current}/${progress.total})`
+                : '写真を選択（複数可）'}
             </p>
-            <p className="text-gray-500 text-xs mt-1">タップしてカメラロールから選べます</p>
+            <p className="text-gray-500 text-xs mt-1">
+              タップしてカメラロールから選ぶか、その場で撮影できます
+            </p>
           </label>
 
           {error && (
