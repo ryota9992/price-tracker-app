@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 
 export default function Home() {
   const [processing, setProcessing] = useState(false);
@@ -188,9 +189,17 @@ const base64 = await new Promise((resolve, reject) => {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
           <div className="bg-white rounded-2xl shadow-xl p-4 md:p-8">
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6">
-              📊 買取価格比較ツール
-            </h1>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-800">
+                📊 買取価格比較ツール
+              </h1>
+              <Link
+                href="/crop"
+                className="text-sm px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+              >
+                ✂️ 画面写真の自動切り出し
+              </Link>
+            </div>
 
             <div className="mb-8">
               <label className="block mb-4">
