@@ -58,11 +58,10 @@
     "_comment": "商品詳細ページ。再出品用のスナップショットをここから取ります。",
     "title": ["h1.ItemTitle__Component", "h1"],
     "price": ["[class*='Price']", "[class*='price']"],
-    "description": [
-      "h3:has-text('商品説明') + div",
-      "h3:has-text('商品説明') + p",
-      "[class*='Description']",
-      "[class*='description']"
+    "_description": [
+      "説明と商品情報は、見出し（商品説明 / 商品の情報）を手がかりにコード側で読み取ります。",
+      "この画面は dl/dt ではなく表組みで、クラス名も自動生成なので、見出し基準が一番壊れにくいためです。",
+      "説明文は『もっと読む』で省略されているので、開いてから読みます。"
     ],
     "images": [
       "img[src*='images.auctions.yahoo.co.jp/image/'][src*='/users/']:not([src*='auc-pctr'])"
@@ -75,16 +74,14 @@
       "`main img` のような広い指定へのフォールバックは、意図的に用意していません。"
     ],
     "_labeledValues": [
-      "「ラベル: 値」形式の項目。dt+dd（隣接）を先に試し、ダメなら :right-of（見た目で右にある要素）を試します。",
-      "サイトの構造が dl でない場合は、inspect の結果を見てここを書き換えてください。"
+      "「商品の情報」は表組みで、行が『ラベル<タブ>値』として読み取れます（実機で確認済み）。",
+      "使うラベル: 商品の状態 / 配送の方法 / 発送までの日数 / 発送元の地域 / カテゴリ。",
+      "Yahoo!フリマは全品送料無料のため『配送料の負担』という項目は存在しません。"
     ],
-    "condition": ["dt:has-text('商品の状態') + dd", "dd:right-of(dt:has-text('商品の状態'))"],
+    "infoHeading": "商品の情報",
+    "descriptionHeading": "商品説明",
     "category": ["a[href^='/category/']"],
     "_category": "パンくずはカテゴリIDへのリンクになっている（/category/2502/36496/36500）。リンク文字がカテゴリ名。",
-    "shippingPayer": ["dt:has-text('配送料の負担') + dd", "dd:right-of(dt:has-text('配送料の負担'))"],
-    "shippingMethod": ["dt:has-text('配送の方法') + dd", "dd:right-of(dt:has-text('配送の方法'))"],
-    "shippingFrom": ["dt:has-text('発送元') + dd", "dd:right-of(dt:has-text('発送元'))"],
-    "shippingDays": ["dt:has-text('発送までの日数') + dd", "dd:right-of(dt:has-text('発送までの日数'))"],
     "soldMark": {
       "textCandidates": ["売却済み", "SOLD", "この商品は売り切れました"]
     }
@@ -110,7 +107,6 @@
     "categoryOpen": ["button:has-text('カテゴリ')", "[class*='category'] button"],
     "categorySearchInput": ["input[placeholder='キーワードを入力してください']"],
     "conditionOpen": ["button:has-text('商品の状態')"],
-    "shippingPayerOpen": ["button:has-text('配送料の負担')"],
     "shippingMethodOpen": ["button:has-text('配送の方法')"],
     "shippingFromOpen": ["button:has-text('発送元')"],
     "shippingDaysOpen": ["button:has-text('発送までの日数')"],
@@ -118,6 +114,9 @@
     "submitButton": ["button:has-text('出品する')"],
     "_submitButton": "『下書きに保存する』が隣にあります。絶対に押さないよう、出品ボタンだけを厳密に指定しています。",
     "confirmButton": ["button:has-text('この内容で出品')"],
+    "productPickerHeading": ["h2:has-text('製品選択')", "h3:has-text('製品選択')"],
+    "productPickerSkip": ["button:has-text('選択しない')"],
+    "_productPicker": "コピー出品を開くとフォームの手前に『製品選択』が出る。閉じないと先に進めない。",
     "successCheck": {
       "textCandidates": ["出品しました", "出品が完了", "出品完了"],
       "urlPattern": "/item/"

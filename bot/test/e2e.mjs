@@ -54,7 +54,16 @@ try {
   check('価格取得', snap.price === 3480, `→ ${snap.price}`);
   check('説明取得', snap.description.includes('テスト用の商品説明'), `→ "${snap.description.slice(0, 20)}"`);
   check('商品の状態取得', snap.condition === '目立った傷や汚れなし', `→ "${snap.condition}"`);
-  check('配送の方法取得', snap.shippingMethod === 'おてがる配送', `→ "${snap.shippingMethod}"`);
+  check('配送の方法取得', snap.shippingMethod === 'おてがる配送（日本郵便）', `→ "${snap.shippingMethod}"`);
+  check('発送までの日数取得', snap.shippingDays === '1〜2日で発送', `→ "${snap.shippingDays}"`);
+  check('発送元の地域取得', snap.shippingFrom === '神奈川県', `→ "${snap.shippingFrom}"`);
+  check('「もっと読む」を開いて説明文を最後まで取る',
+    snap.description.includes('最後まで読んだ場合だけ見える行'), `→ "${snap.description.replace(/\n/g,' ')}"`);
+  check('説明文から見出し・更新日時などを除く',
+    !snap.description.split('\n').some((line) =>
+      ['商品説明', 'もっと読む'].includes(line.trim()) ||
+      /^公開日時/.test(line.trim()) || /前に更新$/.test(line.trim())),
+    `→ "${snap.description.replace(/\n/g, ' / ')}"`);
   check('自分の商品写真2枚だけを保存', snap.images.length === 2 && snap.images.every((f) => fs.existsSync(f)),
     `→ ${snap.images.length}枚`);
   check('おすすめ枠の他人の写真を拾わない',
@@ -85,6 +94,11 @@ try {
   check('新商品が自動で監視対象になる', after.items.new999?.status === 'listed');
   check('新商品にスナップショットが引き継がれる', after.items.new999?.snapshot.title === 'ダミー商品A 完全版');
   check('再出品ログが記録される', after.relistLog.length === 1 && store.relistsToday(after) === 1);
+  check('発送までの日数が送信される（1〜2日で発送 → 1~2日 の表記ゆれを吸収）',
+    mock.lastSubmit.includes('1~2日'));
+  check('発送元の地域が送信される', mock.lastSubmit.includes('神奈川県'));
+  check('元と同じ配送方法（日本郵便）が選ばれる',
+    mock.lastSubmit.includes('JAPAN_POST') && !mock.lastSubmit.includes('name="YAMATO"'));
 
   // 6. 完全自動モード: 検知から出品まで一気に走る
   mock.created = null;

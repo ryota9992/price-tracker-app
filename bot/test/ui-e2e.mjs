@@ -52,7 +52,7 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log(`${ok ? 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 進行中のジョブが終わるまで待つ（処理時間はマシン次第なので固定待ちにしない）
-async function waitForJob(timeout = 60000) {
+async function waitForJob(timeout = 180000) {
   const until = Date.now() + timeout;
   await wait(500);
   while (Date.now() < until) {

@@ -110,18 +110,27 @@ export async function snapshotItem(context, selectors, itemId) {
     const detail = selectors.itemDetail;
     const priceText = await textOf(page, detail.price);
 
+    // 「もっと読む」で説明文が省略されている。押さずに読むと途中で切れたまま再出品してしまう。
+    const more = page.locator("button:has-text('もっと読む')").first();
+    if (await more.count()) {
+      await more.click().catch(() => {});
+      await page.waitForTimeout(800);
+    }
+
+    const info = parseInfoSection(await readSectionText(page, detail.infoHeading));
+
     const snapshot = {
       itemId,
       title: await textOf(page, detail.title),
-      description: await textOf(page, detail.description),
+      description: cleanDescription(await readSectionText(page, detail.descriptionHeading), detail.descriptionHeading),
       price: parsePrice(priceText),
       priceText,
-      condition: cleanValue(await textOf(page, detail.condition)),
-      shippingPayer: cleanValue(await textOf(page, detail.shippingPayer)),
-      shippingMethod: cleanValue(await textOf(page, detail.shippingMethod)),
-      shippingFrom: cleanValue(await textOf(page, detail.shippingFrom)),
-      shippingDays: cleanValue(await textOf(page, detail.shippingDays)),
+      condition: info['商品の状態'] || '',
+      shippingMethod: info['配送の方法'] || '',
+      shippingFrom: info['発送元の地域'] || info['発送元'] || '',
+      shippingDays: info['発送までの日数'] || '',
       category: await readCategory(page, detail),
+      categoryText: info['カテゴリ'] || '',
       images: [],
       capturedAt: new Date().toISOString(),
     };
@@ -144,11 +153,49 @@ function parsePrice(text) {
   return match ? Number(match[1]) : null;
 }
 
-/** 「商品の状態 目立った傷や汚れなし」のようにラベルごと取れた場合にラベルを落とす。 */
-function cleanValue(text) {
-  return String(text)
-    .replace(/^(商品の状態|配送料の負担|配送の方法|発送元の地域|発送元|発送までの日数)\s*/u, '')
-    .trim();
+/**
+ * 見出し（「商品説明」「商品の情報」）を含むかたまりの文字をそのまま取る。
+ * この画面は dl/dt ではなく、クラス名も自動生成で当てにならないため、
+ * 見出しを手がかりにするのが一番壊れにくい。
+ */
+async function readSectionText(page, headingText) {
+  return page
+    .evaluate((wanted) => {
+      const heading = Array.from(document.querySelectorAll('h2, h3')).find(
+        (el) => (el.innerText || '').trim() === wanted
+      );
+      if (!heading) return '';
+      return heading.parentElement?.innerText || '';
+    }, headingText)
+    .catch(() => '');
+}
+
+/**
+ * 「商品の情報」は "商品の状態\t未使用" のようにタブ区切りで並んでいる。
+ * なお Yahoo!フリマは全品送料無料なので「配送料の負担」という項目は存在しない。
+ */
+function parseInfoSection(text) {
+  const result = {};
+  for (const line of String(text).split('\n')) {
+    const [label, ...rest] = line.split('\t');
+    const value = rest.join('\t').trim();
+    if (label && value) result[label.trim()] = value;
+  }
+  return result;
+}
+
+/** 説明文のかたまりから、見出しや更新日時などの付随表示を落とす。 */
+function cleanDescription(text, heading = '商品説明') {
+  const lines = String(text).split('\n');
+  const dropped = lines.filter(
+    (line) =>
+      line.trim() !== heading &&
+      line.trim() !== 'もっと読む' &&
+      !/^公開日時[：:]/.test(line.trim()) &&
+      !/^出品日時[：:]/.test(line.trim()) &&
+      !/(前に更新|に更新)$/.test(line.trim())
+  );
+  return dropped.join('\n').trim();
 }
 
 async function readCategory(page, detail) {
@@ -224,12 +271,48 @@ async function downloadImages(context, page, selectors, itemId) {
  * 成功すればタイトル等が最初から埋まった状態になるので、こちらで埋め直す必要がない。
  * 埋まっていなければ false を返し、呼び出し側が手入力方式に切り替える。
  */
+/**
+ * コピー出品を開くと、フォームの手前に「製品選択」が出てきて先に進めない。
+ * 元の出品がカタログ製品に紐づいていれば同じものを選び、なければ「選択しない」で閉じる。
+ */
+async function dismissProductPicker(page, form, snapshot) {
+  const heading = await findFirst(page, form.productPickerHeading, { timeout: 3000 });
+  if (!heading) return;
+
+  log.info('「製品選択」が出たので、元の出品に合わせて閉じます。');
+
+  // 元の商品名に含まれる語で候補を選べるなら、それが元の出品と同じ状態に近い
+  const buttons = page.locator('button:not(:has-text("選択しない"))');
+  const count = await buttons.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    const text = (await buttons.nth(i).innerText().catch(() => '')).trim();
+    if (!text || text.length < 4) continue;
+    // 「Apple AirTag 1パック （2100000015371）」のような製品名
+    const core = text.replace(/（[^）]*）/g, '').trim();
+    if (core && snapshot.title && snapshot.title.includes(core.split(/\s+/)[0])) {
+      await buttons.nth(i).click().catch(() => {});
+      await page.waitForTimeout(1500);
+      log.info(`製品「${core}」を選びました。`);
+      return;
+    }
+  }
+
+  const skip = await findFirst(page, form.productPickerSkip, { timeout: 3000 });
+  if (skip) {
+    await skip.click().catch(() => {});
+    await page.waitForTimeout(1500);
+    log.info('製品は選ばずに進みました。');
+  }
+}
+
 async function tryCopyListing(page, selectors, snapshot) {
   if (!selectors.urls.sellCopy) return false;
   const url = selectors.urls.sellCopy.replace('{itemId}', snapshot.itemId);
   await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => {});
   await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
   await page.waitForTimeout(2000);
+
+  await dismissProductPicker(page, selectors.sellForm, snapshot);
 
   const titleField = await findFirst(page, selectors.sellForm.title, { timeout: 10000 });
   if (!titleField) return false;
@@ -391,18 +474,34 @@ async function pickOption(page, candidates, value) {
 /** 配送方法はチェックボックス。元の出品と同じものにチェックを入れる。 */
 async function tickShippingMethod(page, form, value) {
   if (!value || !form.shippingMethodCheckbox) return;
-  for (const [label, selector] of Object.entries(form.shippingMethodCheckbox)) {
-    // 「おてがる配送（ヤマト運輸）」と「おてがる配送」のような部分一致も許す
-    const base = label.replace(/（.*）/, '');
-    if (!value.includes(label) && !(value.includes(base) && label.includes(base))) continue;
+  const entries = Object.entries(form.shippingMethodCheckbox);
+
+  const tick = async (label, selector) => {
     const box = page.locator(selector).first();
-    if (!(await box.count())) continue;
+    if (!(await box.count())) return false;
     await box.check({ force: true }).catch(() => box.click({ force: true }).catch(() => {}));
     log.info(`配送方法「${label}」を選びました。`);
     await page.waitForTimeout(400);
-    return;
+    return true;
+  };
+
+  // まずは完全一致。「おてがる配送（ヤマト運輸）」と「おてがる配送（日本郵便）」は
+  // 括弧の中だけが違うので、ここを緩めると別の配送業者を選んでしまう。
+  for (const [label, selector] of entries) {
+    if (value.includes(label) && (await tick(label, selector))) return;
   }
-  log.warn(`配送方法「${value}」に合うものが見つかりませんでした。手動確認が必要です。`);
+
+  // 元の表記に業者名が入っていない場合に限り、共通部分での一致を許す。
+  // 該当が2つ以上あるときは、どちらか分からないので選ばない。
+  if (!/[（(]/.test(value)) {
+    const matches = entries.filter(([label]) => {
+      const base = label.replace(/[（(].*/, '').trim();
+      return base && value.includes(base);
+    });
+    if (matches.length === 1 && (await tick(matches[0][0], matches[0][1]))) return;
+  }
+
+  log.warn(`配送方法「${value}」に合うものが特定できませんでした。手動確認が必要です。`);
 }
 
 /** プルダウン/モーダル形式の選択肢を、表示テキストで選ぶ。 */
