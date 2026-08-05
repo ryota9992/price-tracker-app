@@ -125,7 +125,13 @@ const MAPPING = [
   { source: '在庫商品', target: '資産/在庫/商品' },
   { source: 'ポイ投 iPhoneSE12 PayPay', target: '資産/ポイ投/iPhoneSE12 PayPay' },
   { source: 'ポイ投 iPhoneSE11 PayPay', target: '資産/ポイ投/iPhoneSE11 PayPay' },
-  { source: 'ポイ投 楽天ポイント', target: '資産/ポイ投/楽天ポイント' },
+
+  // 楽天ポイントは楽天市場アプリの「保有ポイント」を拾う。
+  // 亮太・明子の2アカウントあるがシートは1行なので合算する。
+  // 「利用可能」はラクマの「ポイント・キャッシュ」と同じ残高を指すため、
+  // ラクマ側で売上金だけを拾うことで二重計上を避けている。
+  { source: '楽天ポイント（亮太）', target: '資産/ポイ投/楽天ポイント' },
+  { source: '楽天ポイント（明子）', target: '資産/ポイ投/楽天ポイント' },
   { source: 'LINEPay', target: '資産/その他/LINEPay' },
   { source: 'ポイントサイト', target: '資産/その他/ポイントサイト' },
 ];
