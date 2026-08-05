@@ -34,6 +34,10 @@ const IMPORT_CONFIG = {
   majorCol: 2,
   minorCol: 3,
   itemCol: 4,
+
+  // 転記したセルの文字色。前回値の引き継ぎ・手入力と見分けるため。
+  // 空文字にすると色を変えない。
+  importedFontColor: '#d93025',
 };
 
 /**
@@ -144,7 +148,11 @@ function runImport_(ss, importSheet) {
       missingRows.push(target);
       return;
     }
-    sheet.getRange(row, col).setValue(sums[target]);
+    const cell = sheet.getRange(row, col);
+    cell.setValue(sums[target]);
+    if (IMPORT_CONFIG.importedFontColor) {
+      cell.setFontColor(IMPORT_CONFIG.importedFontColor);
+    }
     written.push({ target: target, row: row, value: sums[target] });
   });
 

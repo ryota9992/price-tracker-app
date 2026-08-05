@@ -25,6 +25,10 @@ const CONFIG = {
 
   // 列追加後に通知メールを送る場合は宛先を設定する。空文字なら送らない。
   notifyEmail: '',
+
+  // 前列をコピーすると文字色まで引き継がれるため、追加した列はリセットする。
+  // これがないと、転記済みを示す赤字が毎週伝播して意味を失う。
+  resetFontColor: true,
 };
 
 /**
@@ -47,6 +51,12 @@ function addWeeklyColumn() {
   const rows = sheet.getMaxRows();
   sheet.getRange(1, layout.lastDataCol, rows, 1)
     .copyTo(sheet.getRange(1, newCol, rows, 1));
+
+  // 追加直後の値はすべて前回からの引き継ぎなので、文字色を既定に戻す。
+  // このあと importBalances が転記したセルだけを赤にする。
+  if (CONFIG.resetFontColor) {
+    sheet.getRange(1, newCol, rows, 1).setFontColor(null);
+  }
 
   // 年行と日付行だけは前回値のコピーではなく今日の日付で上書きする。
   writeDateHeader_(sheet, layout, newCol, today);
