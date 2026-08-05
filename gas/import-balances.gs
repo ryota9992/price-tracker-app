@@ -38,6 +38,11 @@ const IMPORT_CONFIG = {
   // 転記したセルの文字色。前回値の引き継ぎ・手入力と見分けるため。
   // 空文字にすると色を変えない。
   importedFontColor: '#d93025',
+
+  // 複数の source が1行に集まるとき、合計値ではなく =a+b の数式で書く。
+  // シート側が元々そう記録しており（楽天ポイントの =564019+278002 など）、
+  // 内訳を潰さないため。false にすると合計値を書く。
+  writeSumAsFormula: true,
 };
 
 /**
@@ -188,9 +193,14 @@ function runImport_(ss, importSheet) {
   const rowIndex = buildRowIndex_(sheet);
 
   const lookup = {};
-  MAPPING.forEach(function (m) { lookup[m.source.trim()] = m.target; });
+  const order = {};
+  MAPPING.forEach(function (m, i) {
+    lookup[m.source.trim()] = m.target;
+    order[m.source.trim()] = i;
+  });
 
-  const sums = {};
+  // 1行に複数の source が集まる場合に内訳を保つため、合計せず配列で持つ。
+  const contributions = {};
   const unmapped = [];
   entries.forEach(function (e) {
     const target = lookup[e.name];
@@ -199,24 +209,35 @@ function runImport_(ss, importSheet) {
       return;
     }
     const value = isLiability_(target) ? Math.abs(e.amount) : e.amount;
-    sums[target] = (sums[target] || 0) + value;
+    if (!contributions[target]) contributions[target] = [];
+    contributions[target].push({ idx: order[e.name], value: value });
   });
 
   const col = layout.lastDataCol;
   const written = [];
   const missingRows = [];
-  Object.keys(sums).forEach(function (target) {
+  Object.keys(contributions).forEach(function (target) {
     const row = rowIndex[target];
     if (!row) {
       missingRows.push(target);
       return;
     }
+    // 貼り付け順に依存しないよう MAPPING の並びに揃える。
+    const list = contributions[target].sort(function (a, b) { return a.idx - b.idx; });
+    const total = list.reduce(function (s, p) { return s + p.value; }, 0);
+
     const cell = sheet.getRange(row, col);
-    cell.setValue(sums[target]);
+    if (list.length > 1 && IMPORT_CONFIG.writeSumAsFormula) {
+      cell.setFormula('=' + list.map(function (p) {
+        return p.value < 0 ? '(' + p.value + ')' : String(p.value);
+      }).join('+'));
+    } else {
+      cell.setValue(total);
+    }
     if (IMPORT_CONFIG.importedFontColor) {
       cell.setFontColor(IMPORT_CONFIG.importedFontColor);
     }
-    written.push({ target: target, row: row, value: sums[target] });
+    written.push({ target: target, row: row, value: total, 内訳: list.length });
   });
 
   const date = sheet.getRange(layout.dateRow, col).getDisplayValue();
