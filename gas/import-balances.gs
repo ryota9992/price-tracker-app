@@ -1,10 +1,15 @@
 /**
  * Moneytree の口座残高を「取込」シート経由でシート7に転記する。
  *
- * 運用:
+ * 運用（スマホで完結する）:
  *   1. 週次トリガー（asset-sheet-weekly.gs）が新しい日付列を追加する
- *   2. Moneytree の口座残高画面のスクショから「口座名 / 金額」を取込シートに貼る
- *   3. importBalances() を実行すると、最新の日付列に書き込まれる
+ *   2. Moneytree の口座残高画面のスクショから起こした「口座名 / 金額」を
+ *      取込シートに貼る
+ *   3. 貼った時点で onEdit トリガーが発火し、自動で転記される
+ *   4. 結果は取込シートの1行目に表示される
+ *
+ * スマホでは Apps Script のエディタも実行ログも使えないため、
+ * 手動実行を前提にせず、結果はシート上に書き戻す。
  *
  * 設計上の要点:
  *   - シート7の行番号はハードコードしない。大分類/中分類/項目 で行を引く
@@ -19,6 +24,11 @@ const IMPORT_CONFIG = {
   sheetName: 'シート7',
   importSheetName: '取込',
 
+  // 取込シートの構成
+  statusRow: 1,   // スクリプトが結果を書く行
+  headerRow: 2,   // 見出し
+  firstDataRow: 3,
+
   // 大分類・中分類の列（B列・C列）と項目の列（D列）。
   // 縦方向に結合されている場合は上から値を引き継いで解決する。
   majorCol: 2,
@@ -29,7 +39,7 @@ const IMPORT_CONFIG = {
 /**
  * Moneytree の表示名 → シート7の行（大分類/中分類/項目）。
  *
- * source は Moneytree の口座残高画面に出る名前。前後の空白は無視し、
+ * source は Moneytree の口座残高画面に出る名前。前後の空白は無視して
  * 完全一致で引く。表記が変わったらここだけ直せばよい。
  *
  * 同じ target を複数の source が指す場合は合算される。
@@ -56,36 +66,62 @@ const MAPPING = [
   { source: 'カードローン', target: '負債/ローン/みずほ' },
 ];
 
-/**
- * 負債側は Moneytree がマイナスで返すため絶対値に直して書く。
- * 大分類が「負債」の行をすべて対象にする。
- */
+/** 大分類が「負債」の行は絶対値で書く。 */
 function isLiability_(targetKey) {
   return targetKey.indexOf('負債/') === 0;
 }
 
 /**
+ * 取込シートが編集されたら自動で転記する。
+ * インストール型 onEdit トリガーから呼ばれる（installImportTrigger で登録）。
+ * スクリプト自身の書き込みでは発火しないので、ステータス更新でループしない。
+ */
+function onImportEdit(e) {
+  if (!e || !e.range) return;
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== IMPORT_CONFIG.importSheetName) return;
+  // ステータス行の編集は無視する。
+  if (e.range.getLastRow() < IMPORT_CONFIG.firstDataRow) return;
+  importBalances();
+}
+
+/**
  * 取込シートの内容をシート7の最新列に書き込む。
+ * 結果は取込シートの1行目に表示する。
  */
 function importBalances() {
   const ss = SpreadsheetApp.openById(IMPORT_CONFIG.spreadsheetId);
-  const sheet = ss.getSheetByName(IMPORT_CONFIG.sheetName);
   const importSheet = ss.getSheetByName(IMPORT_CONFIG.importSheetName);
-  if (!sheet) throw new Error('シートが見つかりません: ' + IMPORT_CONFIG.sheetName);
   if (!importSheet) throw new Error('取込シートがありません。createImportSheet() を実行してください。');
 
-  const entries = readImportSheet_(importSheet);
-  if (entries.length === 0) throw new Error('取込シートにデータがありません。');
+  try {
+    const result = runImport_(ss, importSheet);
+    setStatus_(importSheet, result.message, result.ok);
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  } catch (err) {
+    setStatus_(importSheet, '✗ エラー: ' + err.message, false);
+    throw err;
+  }
+}
+
+function runImport_(ss, importSheet) {
+  const sheet = ss.getSheetByName(IMPORT_CONFIG.sheetName);
+  if (!sheet) throw new Error('シートが見つかりません: ' + IMPORT_CONFIG.sheetName);
+
+  const entries = parseImportSheet_(importSheet);
+  if (entries.length === 0) {
+    return { ok: false, message: '取込シートにデータがありません。', written: [] };
+  }
 
   const layout = detectLayout_(sheet);
   const rowIndex = buildRowIndex_(sheet);
 
-  // マッピングを引いて target ごとに合算する。
-  const sums = {};
-  const unmapped = [];
   const lookup = {};
   MAPPING.forEach(function (m) { lookup[m.source.trim()] = m.target; });
 
+  const sums = {};
+  const unmapped = [];
   entries.forEach(function (e) {
     const target = lookup[e.name];
     if (!target) {
@@ -96,11 +132,9 @@ function importBalances() {
     sums[target] = (sums[target] || 0) + value;
   });
 
-  // 書き込み先は最新の日付列。
   const col = layout.lastDataCol;
   const written = [];
   const missingRows = [];
-
   Object.keys(sums).forEach(function (target) {
     const row = rowIndex[target];
     if (!row) {
@@ -112,51 +146,100 @@ function importBalances() {
   });
 
   const date = sheet.getRange(layout.dateRow, col).getDisplayValue();
-  const report = {
-    書き込み先の列: columnLetter_(col),
-    列の日付: date,
-    書き込んだ件数: written.length,
-    内訳: written,
-    マッピングに無い口座名: unmapped,
-    シートに見つからない行: missingRows,
-  };
-  console.log(JSON.stringify(report, null, 2));
-
-  if (unmapped.length > 0 || missingRows.length > 0) {
-    console.log('※ 未処理の項目があります。MAPPING を確認してください。');
+  const parts = ['✓ ' + date + ' の列（' + columnLetter_(col) + '）に '
+    + written.length + ' 件を転記しました。'];
+  if (unmapped.length > 0) {
+    parts.push('未対応の口座名: ' + unmapped.join(' / '));
   }
-  return report;
+  if (missingRows.length > 0) {
+    parts.push('シートに行が無い: ' + missingRows.join(' / '));
+  }
+
+  return {
+    ok: unmapped.length === 0 && missingRows.length === 0,
+    message: parts.join('　'),
+    列: columnLetter_(col),
+    日付: date,
+    written: written,
+    unmapped: unmapped,
+    missingRows: missingRows,
+  };
+}
+
+function setStatus_(importSheet, message, ok) {
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MM/dd HH:mm');
+  const cell = importSheet.getRange(IMPORT_CONFIG.statusRow, 1);
+  cell.setValue('[' + stamp + '] ' + message);
+  cell.setFontColor(ok ? '#137333' : '#b31412');
 }
 
 /**
- * 書き込まずに、何がどの行に入るかだけ確認する。
+ * 取込シートを読む。貼り方の揺れを吸収する。
+ *
+ * スマホの Google スプレッドシートは、複数行のテキストを貼ると
+ * 1セルにまとめて入ることがある。以下のいずれでも読めるようにする。
+ *   - A列に口座名、B列に金額（タブ区切りで貼った場合）
+ *   - A列の1セルに「名前\t金額」が改行区切りで全部入っている場合
+ *   - A列に「名前 金額」が1行ずつ入っている場合
  */
-function importDryRun() {
-  const ss = SpreadsheetApp.openById(IMPORT_CONFIG.spreadsheetId);
-  const sheet = ss.getSheetByName(IMPORT_CONFIG.sheetName);
-  const importSheet = ss.getSheetByName(IMPORT_CONFIG.importSheetName);
-  const entries = importSheet ? readImportSheet_(importSheet) : [];
-  const layout = detectLayout_(sheet);
-  const rowIndex = buildRowIndex_(sheet);
+function parseImportSheet_(importSheet) {
+  const lastRow = importSheet.getLastRow();
+  if (lastRow < IMPORT_CONFIG.firstDataRow) return [];
+  const n = lastRow - IMPORT_CONFIG.firstDataRow + 1;
+  const values = importSheet.getRange(IMPORT_CONFIG.firstDataRow, 1, n, 2).getValues();
 
-  const lookup = {};
-  MAPPING.forEach(function (m) { lookup[m.source.trim()] = m.target; });
+  const entries = [];
+  values.forEach(function (row) {
+    const a = String(row[0]).trim();
+    if (a === '') return;
 
-  const plan = entries.map(function (e) {
-    const target = lookup[e.name];
-    return {
-      入力: e.name,
-      金額: e.amount,
-      対応先: target || '（マッピング無し）',
-      行: target ? (rowIndex[target] || '（行が見つからない）') : '-',
-    };
+    // B列に金額があるなら素直に読む。
+    const b = parseAmount_(row[1]);
+    if (b !== null && a.indexOf('\n') === -1 && a.indexOf('\t') === -1) {
+      entries.push({ name: a, amount: b });
+      return;
+    }
+
+    // 1セルに複数行入っている場合は行ごとに分解する。
+    a.split(/\r?\n/).forEach(function (line) {
+      const parsed = parseLine_(line);
+      if (parsed) entries.push(parsed);
+    });
   });
+  return entries;
+}
 
-  console.log(JSON.stringify({
-    書き込み先の列: columnLetter_(layout.lastDataCol),
-    列の日付: sheet.getRange(layout.dateRow, layout.lastDataCol).getDisplayValue(),
-    予定: plan,
-  }, null, 2));
+/**
+ * 「名前<TAB>金額」または「名前 -¥351,275」のような1行を分解する。
+ */
+function parseLine_(line) {
+  const s = String(line).trim();
+  if (s === '') return null;
+
+  // タブ区切りを優先する。
+  if (s.indexOf('\t') !== -1) {
+    const parts = s.split('\t');
+    const amount = parseAmount_(parts[parts.length - 1]);
+    if (amount === null) return null;
+    return { name: parts.slice(0, -1).join('\t').trim(), amount: amount };
+  }
+
+  // 末尾の金額らしき部分を切り出す。
+  const m = s.match(/^(.*?)[\s]+([-−–—]?[¥￥]?[\d,]+)$/);
+  if (!m) return null;
+  const amount = parseAmount_(m[2]);
+  if (amount === null) return null;
+  return { name: m[1].trim(), amount: amount };
+}
+
+/** 「-¥351,275」のような表記も数値に直す。 */
+function parseAmount_(raw) {
+  if (typeof raw === 'number') return raw;
+  const s = String(raw).trim();
+  if (s === '') return null;
+  const cleaned = s.replace(/[¥￥,\s]/g, '').replace(/[−–—]/g, '-');
+  if (!/^-?\d+$/.test(cleaned)) return null;
+  return Number(cleaned);
 }
 
 /**
@@ -165,8 +248,8 @@ function importDryRun() {
  */
 function buildRowIndex_(sheet) {
   const lastRow = sheet.getLastRow();
-  const values = sheet.getRange(1, IMPORT_CONFIG.majorCol, lastRow,
-    IMPORT_CONFIG.itemCol - IMPORT_CONFIG.majorCol + 1).getDisplayValues();
+  const width = IMPORT_CONFIG.itemCol - IMPORT_CONFIG.majorCol + 1;
+  const values = sheet.getRange(1, IMPORT_CONFIG.majorCol, lastRow, width).getDisplayValues();
 
   const index = {};
   let major = '';
@@ -179,51 +262,33 @@ function buildRowIndex_(sheet) {
     if (n !== '') minor = n;
     if (item === '') continue;
     const key = major + '/' + minor + '/' + item;
-    // 同じキーが複数あっても最初の行を採用する。
     if (!index[key]) index[key] = i + 1;
   }
   return index;
 }
 
 /**
- * 解決した行の一覧を出す。マッピングの target を書くときの参照用。
+ * 解決した行の一覧を取込シートのD列に書き出す。
+ * MAPPING の target を直すときの参照用。スマホでも見られるようにシートに出す。
  */
 function listRowKeys() {
-  const sheet = SpreadsheetApp.openById(IMPORT_CONFIG.spreadsheetId)
-    .getSheetByName(IMPORT_CONFIG.sheetName);
+  const ss = SpreadsheetApp.openById(IMPORT_CONFIG.spreadsheetId);
+  const sheet = ss.getSheetByName(IMPORT_CONFIG.sheetName);
+  const importSheet = ss.getSheetByName(IMPORT_CONFIG.importSheetName);
   const index = buildRowIndex_(sheet);
-  const lines = Object.keys(index).map(function (k) { return index[k] + '\t' + k; });
-  console.log(lines.join('\n'));
-}
+  const rows = Object.keys(index).map(function (k) { return [index[k], k]; });
+  rows.sort(function (x, y) { return x[0] - y[0]; });
 
-/**
- * 取込シートを読む。A列に口座名、B列に金額。1行目は見出し。
- */
-function readImportSheet_(importSheet) {
-  const lastRow = importSheet.getLastRow();
-  if (lastRow < 2) return [];
-  const values = importSheet.getRange(2, 1, lastRow - 1, 2).getValues();
-  const entries = [];
-  values.forEach(function (row) {
-    const name = String(row[0]).trim();
-    if (name === '') return;
-    const amount = parseAmount_(row[1]);
-    if (amount === null) return;
-    entries.push({ name: name, amount: amount });
-  });
-  return entries;
-}
+  console.log(rows.map(function (r) { return r[0] + '\t' + r[1]; }).join('\n'));
 
-/**
- * 「-¥351,275」のような表記も数値に直す。
- */
-function parseAmount_(raw) {
-  if (typeof raw === 'number') return raw;
-  const s = String(raw).trim();
-  if (s === '') return null;
-  const cleaned = s.replace(/[¥,\s]/g, '').replace(/[−–—]/g, '-');
-  const n = Number(cleaned);
-  return isNaN(n) ? null : n;
+  if (importSheet) {
+    importSheet.getRange(1, 4, Math.max(importSheet.getMaxRows(), 1), 2).clearContent();
+    importSheet.getRange(1, 4, 1, 2).setValues([['行', 'キー']]).setFontWeight('bold');
+    if (rows.length > 0) {
+      importSheet.getRange(2, 4, rows.length, 2).setValues(rows);
+    }
+    importSheet.setColumnWidth(5, 320);
+  }
 }
 
 /**
@@ -232,14 +297,31 @@ function parseAmount_(raw) {
 function createImportSheet() {
   const ss = SpreadsheetApp.openById(IMPORT_CONFIG.spreadsheetId);
   let sheet = ss.getSheetByName(IMPORT_CONFIG.importSheetName);
-  if (sheet) {
-    console.log('取込シートは既にあります。');
-    return;
+  if (!sheet) {
+    sheet = ss.insertSheet(IMPORT_CONFIG.importSheetName);
   }
-  sheet = ss.insertSheet(IMPORT_CONFIG.importSheetName);
-  sheet.getRange(1, 1, 1, 2).setValues([['口座名', '金額']]);
-  sheet.getRange(1, 1, 1, 2).setFontWeight('bold');
+  sheet.getRange(IMPORT_CONFIG.headerRow, 1, 1, 2)
+    .setValues([['口座名', '金額']]).setFontWeight('bold');
+  sheet.getRange(IMPORT_CONFIG.statusRow, 1)
+    .setValue('ここに結果が表示されます');
   sheet.setColumnWidth(1, 320);
   sheet.setColumnWidth(2, 140);
-  console.log('取込シートを作りました。');
+  console.log('取込シートを用意しました。');
+}
+
+/**
+ * 取込シートへの貼り付けで自動転記が走るようにする。
+ * スマホから運用するために必要。手動で1度だけ実行する。
+ */
+function installImportTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(function (t) { return t.getHandlerFunction() === 'onImportEdit'; })
+    .forEach(function (t) { ScriptApp.deleteTrigger(t); });
+
+  ScriptApp.newTrigger('onImportEdit')
+    .forSpreadsheet(IMPORT_CONFIG.spreadsheetId)
+    .onEdit()
+    .create();
+
+  console.log('取込シートの編集で自動転記が走るようになりました。');
 }
