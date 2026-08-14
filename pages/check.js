@@ -84,10 +84,12 @@ export default function Check() {
     setResult(null);
 
     try {
+      // ?debug=1 を付けてアクセスすると、買取スキャナー失敗時のスクリーンショットを取得する
+      const debug = new URLSearchParams(window.location.search).get('debug') === '1';
       const response = await fetch('/api/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, debug }),
       });
 
       const data = await response.json();
@@ -474,7 +476,12 @@ export default function Check() {
 
               {result.shops.length > 0 && (
                 <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-                  <div className="px-4 pt-3 text-xs text-gray-400">買取価格（高い順）</div>
+                  <div className="px-4 pt-3 flex items-center justify-between">
+                    <span className="text-xs text-gray-400">買取価格（高い順）</span>
+                    <span className="text-xs text-gray-400">
+                      {result.priceSource === 'scanner' ? '買取スキャナー調べ' : result.priceSource === 'web' ? 'Web検索調べ' : ''}
+                    </span>
+                  </div>
                   <ul className="divide-y divide-gray-100">
                     {result.shops.map((shop, idx) => {
                       const badge = shopBadge(shop.name);
@@ -530,6 +537,22 @@ export default function Check() {
               {result.notes && (
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-600">
                   {result.notes}
+                </div>
+              )}
+
+              {result.debug && (result.debug.scannerScreenshot || result.debug.scannerMessage) && (
+                <div className="bg-gray-900 rounded-xl p-3 space-y-2">
+                  <div className="text-xs text-gray-300">
+                    デバッグ: 買取スキャナー{result.debug.scannerMessage ? `失敗（${result.debug.scannerStep}: ${result.debug.scannerMessage}）` : '成功'}
+                  </div>
+                  {result.debug.scannerScreenshot && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={result.debug.scannerScreenshot}
+                      alt="買取スキャナーのデバッグスクリーンショット"
+                      className="w-full rounded border border-gray-700"
+                    />
+                  )}
                 </div>
               )}
 

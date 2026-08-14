@@ -15,9 +15,17 @@
 ## 🔎 判定のしくみ
 
 1. 画像またはURLから「商品名」「購入価格」「ポイント還元額」をClaude（`claude-opus-5`、画像認識 + web_fetch）が読み取る
-2. Web検索で日本国内の買取店の買取価格を確認する（推測値は使わない）
+2. **買取価格は「買取スキャナー」（`hikaku-342505.firebaseapp.com`）にログインし、実際の商品検索結果から取得する。**
+   買取スキャナーで見つからなかった場合のみ、Web検索（Claude + web_search）にフォールバックする
 3. `差引利益 = 買取価格 − (購入価格 − ポイント還元額)` をアプリ側で計算し、プラスなら🟢買い時、マイナスなら🔴損と即座に表示
 4. 読み取った購入価格・ポイントは画面上で手直しでき、編集すると通信なしでその場再計算される
+
+### ⚠️ 買取スキャナー連携について
+
+- 買取スキャナーにはAPIが無いため、**ヘッドレスブラウザ（Playwright）で実際にログインして検索画面を操作**している。ログインID・パスワードはあなた個人のものを使う
+- 買取スキャナーの利用規約には自動化を名指しで禁止する条文は無いが、「サービス運営を妨害するおそれのある行為」「当社が不適切と判断する行為」という裁量条項があり、**アカウント停止のリスクをゼロにはできない**。利用は自己責任で行うこと
+- **このアプリにはログイン機能が無い**。デプロイ先のURLを知っていれば誰でもあなたの買取スキャナーのログインを使って検索できてしまう。個人利用のみを想定している
+- サイトのHTML構造を確認できない状態で実装したため、**ログインフォームや検索結果の読み取りが最初は失敗する可能性が高い**。失敗した場合は `https://<あなたのURL>/check?debug=1` でアクセスすると、失敗した画面のスクリーンショットが結果画面下部に表示されるので、それを見ながら調整する
 
 価格・ポイント情報はWeb検索・画像認識で見つけた掲載値です。実際の査定額や還元条件は状態や時期で変わります。
 
@@ -53,8 +61,9 @@ git push -u origin main
 3. 「Add New Project」をクリック
 4. GitHubリポジトリ `price-tracker-app` を選択
 5. 「Environment Variables」に以下を追加：
-   - Name: `ANTHROPIC_API_KEY`
-   - Value: あなたのAnthropic APIキー（[こちら](https://console.anthropic.com/)で取得）
+   - Name: `ANTHROPIC_API_KEY` / Value: あなたのAnthropic APIキー（[こちら](https://console.anthropic.com/)で取得）
+   - Name: `KAITORI_SCANNER_EMAIL` / Value: 買取スキャナーのログインメールアドレス
+   - Name: `KAITORI_SCANNER_PASSWORD` / Value: 買取スキャナーのログインパスワード
 6. 「Deploy」をクリック
 
 ### 4. 完了！
@@ -78,6 +87,7 @@ git push -u origin main
 ## 💡 機能
 
 - ✅ 商品ページのスクショ／URLから購入価格・ポイント・買取価格を自動収集し、差引利益を即判定
+- ✅ 買取価格は「買取スキャナー」から取得（見つからない場合のみWeb検索にフォールバック）
 - ✅ 購入価格・ポイントはその場で手直しして再計算可能（通信なし）
 - ✅ スクリーンショットから自動データ抽出（複数商品比較表）
 - ✅ 複数商品の一括処理
@@ -92,7 +102,11 @@ git push -u origin main
 npm install
 
 # 環境変数の設定
-echo "ANTHROPIC_API_KEY=your_api_key_here" > .env.local
+cat <<EOF > .env.local
+ANTHROPIC_API_KEY=your_api_key_here
+KAITORI_SCANNER_EMAIL=your_login_email
+KAITORI_SCANNER_PASSWORD=your_login_password
+EOF
 
 # 開発サーバー起動
 npm run dev
@@ -102,7 +116,8 @@ npm run dev
 
 ## 📝 注意事項
 
-- Anthropic APIキーは秘密情報です。GitHubにコミットしないでください
+- Anthropic APIキー・買取スキャナーのログイン情報は秘密情報です。GitHubにコミットしないでください
 - APIの利用には料金がかかる場合があります
-- URL検索はWeb検索を行うため、1回あたり30〜60秒ほどかかります（Vercelの関数タイムアウトは60秒に設定済み）
+- 検索1回あたり30〜60秒ほどかかります（買取スキャナーへのログイン・検索＋Claudeでの画像/ページ読み取り。Vercelの関数タイムアウトは60秒に設定済み）
 - 検索の深さは環境変数 `LOOKUP_EFFORT`（`low` / `medium` / `high`、既定は `low`）で調整できます。精度を上げたい場合は `medium` にしてください
+- 買取スキャナーのChromiumバイナリ配布元バージョンを上げた場合は、`lib/scanner.js` の `CHROMIUM_PACK_URL`（または環境変数 `CHROMIUM_PACK_URL`）を対応するリリースのURLに更新してください
