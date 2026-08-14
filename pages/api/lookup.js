@@ -3,55 +3,73 @@ import { fetchPageInfo } from '../../lib/fetchPage';
 import { shopHintText } from '../../lib/shops';
 
 // Web検索を伴うので既定の10秒では足りない（Vercel Hobbyは最大60秒）
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 60, api: { bodyParser: { sizeLimit: '10mb' } } };
 
 const MODEL = 'claude-opus-5';
 const EFFORT = process.env.LOOKUP_EFFORT || 'low';
 const MAX_CONTINUATIONS = 3;
 
-const SYSTEM_PROMPT = `あなたは日本の中古市場に詳しいリユース査定アシスタントです。
-与えられた商品について、日本国内の買取店が今提示している買取価格をWeb検索で調べ、比較できる形にまとめます。
+const SYSTEM_PROMPT = `あなたは「せどり（転売）」の利益判定を手伝う査定アシスタントです。
+ユーザーは通販サイトの商品ページを見ており、その商品を買取に出したときに利益が出るか知りたいと思っています。
 
-守ること:
+やること:
+1. 与えられた画像またはURLから、その通販ページの「商品名」「購入価格」「ポイント還元」を正確に読み取る
+2. その商品を日本国内の買取店が今いくらで買い取っているかをWeb検索で調べる
+3. 見つけた情報をJSONで返す（利益の計算はしなくてよい。数値を正確に返すことだけに集中する）
+
+購入価格・ポイントを読み取るときのルール:
+- purchasePrice はその商品の実際の販売価格（送料や手数料は含めない）。カンマや円マークを除いた整数。
+- pointsAmount は付与されるポイントの「円換算額」。「10%還元で1,598pt」のように書かれていれば pt数をそのまま円として扱ってよい（多くのポイントは1pt=1円）。
+- ポイント還元率(%)しか分からずポイントの実数が読めない場合は pointsAmount は null にし、pointsRate に「10%」のように記録する。
+- ポイントの記載が無ければ pointsAmount も pointsRate も null。
+- クーポンやセール情報などポイント以外の値引きは無視してよい。
+
+買取価格を調べるときのルール:
 - 必ずweb_searchで実際の買取価格ページを確認し、確認できた価格だけを載せる。推測で数字を作らない。
-- 価格は日本円の整数（カンマなし）。「〜円まで」のような上限表記は上限額を price に入れ、note に条件を書く。
-- 同じ商品でも容量・カラー・状態（未使用/中古美品/画面割れ等）で価格が変わる。想定した状態を condition に明記する。
-- 買取価格が見つからない店は結果に含めない。1店も見つからない場合は shops を空配列にして notes で理由を説明する。
+- 同じ商品でも状態（未使用/中古美品/画面割れ等）で価格が変わる。想定した状態を condition に明記する。
+- 買取価格が見つからない店は結果に含めない。1店も見つからない場合は shops を空配列にする。
 - 出力はJSONのみ。前置き・説明文・コードブロック記号は一切書かない。`;
 
-function buildUserPrompt({ pageInfo, url, productName, condition }) {
+function buildUserPrompt({ pageInfo, hasImage, url, productName, condition, manualPrice, manualPoints }) {
   const lines = [];
 
-  lines.push('次の商品の買取価格を調べてください。');
+  lines.push('次の商品ページについて、購入価格・ポイント・買取価格を調べてください。');
   lines.push('');
 
-  if (!pageInfo && url) {
-    // サーバー側でページを読めなかった場合は、Claudeにweb_fetchで読ませる
-    lines.push('【iPhoneで開いていたページ】');
-    lines.push(`URL: ${url}`);
-    lines.push('このページをweb_fetchで開いて、どの商品かを特定してから買取価格を調べること。');
-    if (productName) lines.push(`ユーザーが補足した商品名: ${productName}`);
-  } else if (pageInfo) {
-    lines.push('【iPhoneで開いていたページの情報】');
-    lines.push(`URL: ${pageInfo.url}`);
-    if (pageInfo.siteName) lines.push(`サイト: ${pageInfo.siteName}`);
-    if (pageInfo.title) lines.push(`ページタイトル: ${pageInfo.title}`);
-    if (pageInfo.productName && pageInfo.productName !== pageInfo.title) {
-      lines.push(`商品名: ${pageInfo.productName}`);
+  if (hasImage) {
+    lines.push('【添付画像】');
+    lines.push('通販サイトの商品ページのスクリーンショットです。この画像から商品名・価格・ポイント表示を読み取ってください。');
+    if (url) lines.push(`参考URL: ${url}`);
+    if (productName) lines.push(`商品名の補足: ${productName}`);
+  } else if (pageInfo || url) {
+    lines.push('【通販ページ】');
+    lines.push(`URL: ${(pageInfo && pageInfo.url) || url}`);
+    if (pageInfo?.siteName) lines.push(`サイト: ${pageInfo.siteName}`);
+    if (pageInfo?.title) lines.push(`ページタイトル: ${pageInfo.title}`);
+    if (pageInfo?.productName && pageInfo.productName !== pageInfo.title) {
+      lines.push(`商品名候補: ${pageInfo.productName}`);
     }
-    if (pageInfo.brand) lines.push(`ブランド: ${pageInfo.brand}`);
-    if (pageInfo.sku) lines.push(`型番/SKU: ${pageInfo.sku}`);
-    if (pageInfo.listPrice) {
-      lines.push(`このページの販売価格: ${pageInfo.listPrice} ${pageInfo.currency || 'JPY'}`);
+    if (pageInfo?.listPrice) {
+      lines.push(`ページから読み取れた価格: ${pageInfo.listPrice} ${pageInfo.currency || 'JPY'}`);
     }
-    if (pageInfo.description) lines.push(`説明: ${pageInfo.description}`);
+    lines.push('このページをweb_fetchで開いて、正確な商品名・価格・ポイント還元を確認してください（サーバー側の下読みは不正確な場合があります）。');
+    if (productName) lines.push(`商品名の補足: ${productName}`);
   } else {
     lines.push('【調べたい商品】');
     lines.push(productName);
+    lines.push('購入価格・ポイントの情報はありません。分かる範囲でよいので一般的な実売価格を調べてください。');
+  }
+
+  if (manualPrice != null) {
+    lines.push('');
+    lines.push(`【ユーザーが確認した購入価格】${manualPrice}円（このまま purchasePrice として採用すること）`);
+  }
+  if (manualPoints != null) {
+    lines.push(`【ユーザーが確認したポイント還元額】${manualPoints}円（このまま pointsAmount として採用すること）`);
   }
 
   lines.push('');
-  lines.push(`【想定する状態】${condition || '中古・美品（付属品あり、動作正常）'}`);
+  lines.push(`【想定する買取時の状態】${condition || '中古・美品（付属品あり、動作正常）'}`);
   lines.push('');
   lines.push('【優先的に確認する買取店】');
   lines.push(shopHintText());
@@ -61,21 +79,24 @@ function buildUserPrompt({ pageInfo, url, productName, condition }) {
   lines.push('【出力形式】次のJSONだけを出力する:');
   lines.push(`{
   "product": {
-    "name": "特定した商品名（容量・型番まで含めて具体的に）",
+    "name": "特定した商品名（容量・型番・エディションまで具体的に）",
     "model": "型番（不明なら null）",
-    "category": "カテゴリ（スマホ / ゲーム機 / ブランド品 など）",
-    "listPrice": 参考の新品または販売価格（数値、不明なら null）,
+    "category": "カテゴリ（ゲーム / スマホ / 家電 など）",
     "confidence": "high | medium | low（商品を正しく特定できた自信）"
   },
-  "condition": "査定の前提とした状態",
+  "purchase": {
+    "price": 購入価格（数値、円。読み取れなければ null）,
+    "pointsAmount": ポイントの円換算額（数値。不明なら null）,
+    "pointsRate": "ポイント還元率の表記（例: 10%。不明なら null）"
+  },
   "shops": [
     {
       "name": "買取店名",
       "price": 買取価格（数値）,
       "condition": "その価格が適用される状態",
       "url": "価格を確認したページのURL",
-      "note": "条件や補足（増額キャンペーン、本人確認の要否など。無ければ null）",
-      "asOf": "価格の時点（例: 2026-08 / 不明なら null）"
+      "note": "条件や補足（無ければ null）",
+      "asOf": "価格の時点（例: 2026-08。不明なら null）"
     }
   ],
   "marketPrice": フリマ・オークションでの実売相場（数値、不明なら null）,
@@ -110,7 +131,7 @@ function toNumber(value) {
   return null;
 }
 
-function normalize(parsed) {
+function normalize(parsed, overrides) {
   const shops = Array.isArray(parsed.shops) ? parsed.shops : [];
 
   const cleaned = shops
@@ -125,15 +146,22 @@ function normalize(parsed) {
     .filter((shop) => shop.name && shop.price && shop.price > 0)
     .sort((a, b) => b.price - a.price);
 
+  const purchasePrice = overrides.manualPrice != null ? overrides.manualPrice : toNumber(parsed.purchase?.price);
+  const pointsAmount = overrides.manualPoints != null ? overrides.manualPoints : toNumber(parsed.purchase?.pointsAmount);
+
   return {
     product: {
       name: parsed.product?.name || null,
       model: parsed.product?.model || null,
       category: parsed.product?.category || null,
-      listPrice: toNumber(parsed.product?.listPrice),
       confidence: parsed.product?.confidence || null,
     },
-    condition: parsed.condition || null,
+    purchase: {
+      price: purchasePrice,
+      pointsAmount,
+      pointsRate: parsed.purchase?.pointsRate || null,
+    },
+    condition: overrides.condition || null,
     shops: cleaned,
     marketPrice: toNumber(parsed.marketPrice),
     notes: parsed.notes || null,
@@ -150,38 +178,52 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'サーバーにAPIキーが設定されていません' });
   }
 
-  const { url, productName, condition } = req.body || {};
+  const { url, imageData, productName, condition, manualPrice, manualPoints } = req.body || {};
 
-  if (!url && !productName) {
-    return res.status(400).json({ error: 'URLまたは商品名を指定してください' });
+  if (!url && !imageData && !productName) {
+    return res.status(400).json({ error: 'URL・画像・商品名のいずれかを指定してください' });
   }
 
   let pageInfo = null;
   let pageWarning = null;
 
-  if (url) {
+  // 画像がある場合はサーバー側のページ取得は行わず、モデルに直接読ませる
+  if (url && !imageData) {
     try {
       pageInfo = await fetchPageInfo(url);
     } catch (error) {
       console.error('fetchPageInfo error:', error);
-      // 到達できないアドレスは検索側にも渡さない
       if (/アクセスできません|URLの形式|http\/https/.test(error.message)) {
         return res.status(400).json({ error: error.message });
       }
-      // それ以外の理由は詳細をログに残し、利用者には要約だけ見せる
       pageWarning = 'ページを直接読み取れなかったため、検索で商品を特定しました';
     }
   }
 
+  const manualPriceNum = manualPrice != null ? toNumber(manualPrice) : null;
+  const manualPointsNum = manualPoints != null ? toNumber(manualPoints) : null;
+
   try {
     const client = new Anthropic();
 
-    const messages = [
-      {
-        role: 'user',
-        content: buildUserPrompt({ pageInfo, url, productName, condition }),
-      },
-    ];
+    const promptText = buildUserPrompt({
+      pageInfo,
+      hasImage: Boolean(imageData),
+      url,
+      productName,
+      condition,
+      manualPrice: manualPriceNum,
+      manualPoints: manualPointsNum,
+    });
+
+    const userContent = imageData
+      ? [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageData } },
+          { type: 'text', text: promptText },
+        ]
+      : promptText;
+
+    const messages = [{ role: 'user', content: userContent }];
 
     let response;
 
@@ -212,7 +254,11 @@ export default async function handler(req, res) {
       return res.status(422).json({ error: 'この商品については回答できませんでした' });
     }
 
-    const result = normalize(parseResult(extractText(response.content)));
+    const result = normalize(parseResult(extractText(response.content)), {
+      manualPrice: manualPriceNum,
+      manualPoints: manualPointsNum,
+      condition,
+    });
 
     return res.status(200).json({
       ...result,
