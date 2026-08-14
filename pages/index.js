@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 
 export default function Home() {
   const [processing, setProcessing] = useState(false);
@@ -191,6 +192,21 @@ const base64 = await new Promise((resolve, reject) => {
             <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6">
               📊 買取価格比較ツール
             </h1>
+
+            <div className="mb-6 space-y-2">
+              <Link
+                href="/check"
+                className="block rounded-xl bg-indigo-600 text-white p-4 active:bg-indigo-800 transition-colors"
+              >
+                <div className="font-bold text-base md:text-lg">🔍 開いているページから調べる</div>
+                <div className="text-indigo-100 text-xs md:text-sm mt-1">
+                  商品ページのURLを渡すと、各買取店の買取価格をWeb検索で比較します
+                </div>
+              </Link>
+              <Link href="/setup" className="block text-center text-sm text-indigo-600 underline">
+                iPhoneの共有シートにワンタップ登録する
+              </Link>
+            </div>
 
             <div className="mb-8">
               <label className="block mb-4">
