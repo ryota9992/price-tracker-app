@@ -163,24 +163,26 @@ export default async function handler(req, res) {
     try {
       pageInfo = await fetchPageInfo(url);
     } catch (error) {
+      console.error('fetchPageInfo error:', error);
       // 到達できないアドレスは検索側にも渡さない
       if (/アクセスできません|URLの形式|http\/https/.test(error.message)) {
         return res.status(400).json({ error: error.message });
       }
-      pageWarning = `ページを直接読み取れなかったため、検索で商品を特定しました（${error.message}）`;
+      // それ以外の理由は詳細をログに残し、利用者には要約だけ見せる
+      pageWarning = 'ページを直接読み取れなかったため、検索で商品を特定しました';
     }
   }
 
-  const client = new Anthropic();
-
-  const messages = [
-    {
-      role: 'user',
-      content: buildUserPrompt({ pageInfo, url, productName, condition }),
-    },
-  ];
-
   try {
+    const client = new Anthropic();
+
+    const messages = [
+      {
+        role: 'user',
+        content: buildUserPrompt({ pageInfo, url, productName, condition }),
+      },
+    ];
+
     let response;
 
     for (let i = 0; i <= MAX_CONTINUATIONS; i++) {
@@ -218,6 +220,7 @@ export default async function handler(req, res) {
       warning: pageWarning,
     });
   } catch (error) {
+    // 詳細はサーバーログにのみ残し、利用者には常に日本語の一般メッセージを返す
     console.error('lookup error:', error);
 
     if (error instanceof Anthropic.RateLimitError) {
@@ -226,6 +229,6 @@ export default async function handler(req, res) {
     if (error instanceof Anthropic.APIError) {
       return res.status(502).json({ error: `検索サービスのエラー (${error.status})` });
     }
-    return res.status(500).json({ error: error.message || '検索に失敗しました' });
+    return res.status(500).json({ error: '検索中にエラーが発生しました。もう一度お試しください' });
   }
 }
