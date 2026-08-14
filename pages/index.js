@@ -198,13 +198,13 @@ const base64 = await new Promise((resolve, reject) => {
                 href="/check"
                 className="block rounded-xl bg-indigo-600 text-white p-4 active:bg-indigo-800 transition-colors"
               >
-                <div className="font-bold text-base md:text-lg">🔍 開いているページから調べる</div>
+                <div className="font-bold text-base md:text-lg">💰 買取利益をその場で判定</div>
                 <div className="text-indigo-100 text-xs md:text-sm mt-1">
-                  商品ページのURLを渡すと、各買取店の買取価格をWeb検索で比較します
+                  商品ページのスクショまたはURLから、購入額・ポイント・買取価格の差引利益を判定します
                 </div>
               </Link>
               <Link href="/setup" className="block text-center text-sm text-indigo-600 underline">
-                iPhoneの共有シートにワンタップ登録する
+                使い方（ホーム画面・共有シートへの登録）
               </Link>
             </div>
 
