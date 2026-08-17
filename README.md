@@ -22,10 +22,30 @@
 
 ### ⚠️ 買取スキャナー連携について
 
-- 買取スキャナーにはAPIが無いため、**ヘッドレスブラウザ（Playwright）で実際にログインして検索画面を操作**している。ログインID・パスワードはあなた個人のものを使う
+- 買取スキャナーには**Googleアカウントでのログインしか無い**。GoogleはBot・自動化ツールによるログインを積極的に検知・ブロックし、無理に自動化しようとするとあなたのGoogleアカウント自体が不審なアクセスとしてロックされるリスクがあるため、**ログイン処理そのものは自動化していない**
+- 代わりに、**あなたが1回（またはセッションが切れるたびに）手動でログインし、その「ログイン済みの状態」だけを保存して使い回す**方式にしている（下記「買取スキャナーのログインセッションを取得する」参照）。アプリは保存されたセッションを読み込んで、ログイン操作なしでいきなり商品検索を行う
 - 買取スキャナーの利用規約には自動化を名指しで禁止する条文は無いが、「サービス運営を妨害するおそれのある行為」「当社が不適切と判断する行為」という裁量条項があり、**アカウント停止のリスクをゼロにはできない**。利用は自己責任で行うこと
-- **このアプリにはログイン機能が無い**。デプロイ先のURLを知っていれば誰でもあなたの買取スキャナーのログインを使って検索できてしまう。個人利用のみを想定している
-- サイトのHTML構造を確認できない状態で実装したため、**ログインフォームや検索結果の読み取りが最初は失敗する可能性が高い**。失敗した場合は `https://<あなたのURL>/check?debug=1` でアクセスすると、失敗した画面のスクリーンショットが結果画面下部に表示されるので、それを見ながら調整する
+- **このアプリにはログイン機能が無い**。デプロイ先のURLを知っていれば誰でもあなたの買取スキャナーのセッションを使って検索できてしまう。個人利用のみを想定している
+- サイトのHTML構造を確認できない状態で実装したため、**検索欄の操作や検索結果の読み取りが最初は失敗する可能性が高い**。失敗した場合は `https://<あなたのURL>/check?debug=1` でアクセスすると、失敗した画面のスクリーンショットが結果画面下部に表示されるので、それを見ながら調整する
+
+### 🔑 買取スキャナーのログインセッションを取得する
+
+Googleログイン自動化はしないため、**Node.jsが使えるパソコン（Mac/Windows）で1回だけ**この作業が必要です。iPhoneだけでは完結しません。
+
+```bash
+git clone <このリポジトリ>
+cd price-tracker-app
+npm install
+npm run capture-scanner-session
+```
+
+1. 実際のChromeブラウザが開くので、**いつも通りGoogleアカウントでログイン**する
+2. 「商品検索」画面が表示されたら、ターミナルに戻って Enter キーを押す
+3. `scanner-session.json` が作成され、ターミナルにも1行のJSONが表示される
+4. その中身をVercelの環境変数 **`KAITORI_SCANNER_STORAGE_STATE`** にそのまま貼り付けて保存
+5. Vercelで **Redeploy**
+
+セッションには有効期限があるため、**しばらく使っていて急に検索が失敗するようになったら、同じ手順でもう一度取得し直してください**（`session_expired` というエラーが出たらこれが原因です）。
 
 価格・ポイント情報はWeb検索・画像認識で見つけた掲載値です。実際の査定額や還元条件は状態や時期で変わります。
 
@@ -62,8 +82,7 @@ git push -u origin main
 4. GitHubリポジトリ `price-tracker-app` を選択
 5. 「Environment Variables」に以下を追加：
    - Name: `ANTHROPIC_API_KEY` / Value: あなたのAnthropic APIキー（[こちら](https://console.anthropic.com/)で取得）
-   - Name: `KAITORI_SCANNER_EMAIL` / Value: 買取スキャナーのログインメールアドレス
-   - Name: `KAITORI_SCANNER_PASSWORD` / Value: 買取スキャナーのログインパスワード
+   - Name: `KAITORI_SCANNER_STORAGE_STATE` / Value: 買取スキャナーのログインセッション（後述「買取スキャナーのログインセッションを取得する」の手順で取得したもの。無くてもデプロイはできるが、その場合はWeb検索のみで動作する）
 6. 「Deploy」をクリック
 
 ### 4. 完了！
@@ -101,11 +120,11 @@ git push -u origin main
 # 依存関係のインストール
 npm install
 
-# 環境変数の設定
+# 環境変数の設定（KAITORI_SCANNER_STORAGE_STATE は
+# npm run capture-scanner-session で取得した1行のJSON）
 cat <<EOF > .env.local
 ANTHROPIC_API_KEY=your_api_key_here
-KAITORI_SCANNER_EMAIL=your_login_email
-KAITORI_SCANNER_PASSWORD=your_login_password
+KAITORI_SCANNER_STORAGE_STATE=your_captured_session_json
 EOF
 
 # 開発サーバー起動
@@ -116,8 +135,9 @@ npm run dev
 
 ## 📝 注意事項
 
-- Anthropic APIキー・買取スキャナーのログイン情報は秘密情報です。GitHubにコミットしないでください
+- Anthropic APIキー・買取スキャナーのログインセッションは秘密情報です。GitHubにコミットしないでください（`scanner-session.json` は `.gitignore` 済み）
 - APIの利用には料金がかかる場合があります
-- 検索1回あたり30〜60秒ほどかかります（買取スキャナーへのログイン・検索＋Claudeでの画像/ページ読み取り。Vercelの関数タイムアウトは60秒に設定済み）
+- 検索1回あたり30〜60秒ほどかかります（買取スキャナーでの検索＋Claudeでの画像/ページ読み取り。Vercelの関数タイムアウトは60秒に設定済み）
 - 検索の深さは環境変数 `LOOKUP_EFFORT`（`low` / `medium` / `high`、既定は `low`）で調整できます。精度を上げたい場合は `medium` にしてください
 - 買取スキャナーのChromiumバイナリ配布元バージョンを上げた場合は、`lib/scanner.js` の `CHROMIUM_PACK_URL`（または環境変数 `CHROMIUM_PACK_URL`）を対応するリリースのURLに更新してください
+- 買取スキャナーのログインセッションには有効期限があります。急に検索が失敗するようになったら `npm run capture-scanner-session` で取得し直してください
